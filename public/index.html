@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hospital Management System - Sprint 1 Prototype</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-container">
+      <div>
+        <h1 class="logo-title">Hospital Management System</h1>
+        <p class="subtitle">Sprint 1 Prototype: Authentication, Account Security, RBAC & Audit Trail</p>
+      </div>
+      <div id="session-badge" class="session-badge">Not Logged In</div>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-tab="tab-login">Login & Lockout</button>
+      <button class="tab-btn" data-tab="tab-register">Sign Up (Password Policy)</button>
+      <button class="tab-btn" data-tab="tab-rbac">Role-Based Portals</button>
+      <button class="tab-btn" data-tab="tab-audit">Audit Trail (Admin)</button>
+    </nav>
+
+    <!-- Tab 1: Login & Account Lockout Demo -->
+    <section id="tab-login" class="tab-content active">
+      <div class="card">
+        <h2>User Login & Security Policy Demo (US-01 & US-02)</h2>
+        <p class="description">
+          Demonstrates password authentication, JWT token issuance, and automatic account lockout after 5 consecutive failed login attempts (FR-AUTH-02).
+        </p>
+
+        <div class="quick-fill-section">
+          <span class="quick-fill-label">Quick Fill Demo Accounts:</span>
+          <button class="btn btn-outline" onclick="quickFill('doctor.smith@hospital.com', 'HospSecure#2026')">Doctor</button>
+          <button class="btn btn-outline" onclick="quickFill('patient.jane@hospital.com', 'HospSecure#2026')">Patient</button>
+          <button class="btn btn-outline" onclick="quickFill('receptionist@hospital.com', 'HospSecure#2026')">Receptionist</button>
+          <button class="btn btn-outline" onclick="quickFill('admin@hospital.com', 'HospSecure#2026')">System Admin</button>
+        </div>
+
+        <form id="login-form">
+          <div class="form-group">
+            <label for="login-email">Email Address</label>
+            <input type="email" id="login-email" required placeholder="doctor.smith@hospital.com">
+          </div>
+
+          <div class="form-group">
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" required placeholder="Enter password">
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Sign In</button>
+            <button type="button" class="btn btn-danger" onclick="simulateFailedAttempts()">Simulate 5 Failed Logins (Lockout)</button>
+            <button type="button" class="btn btn-secondary" onclick="logoutUser()">Log Out</button>
+          </div>
+        </form>
+
+        <div id="login-alert" class="alert hidden"></div>
+
+        <div id="token-card" class="token-container hidden">
+          <h3>Active JWT Token (RFC 7519)</h3>
+          <pre id="token-display"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 2: User Registration & Password Policy -->
+    <section id="tab-register" class="tab-content">
+      <div class="card">
+        <h2>New User Registration (US-01 / FR-AUTH-01)</h2>
+        <p class="description">
+          Enforces NIST SP 800-63B password requirements: at least 8 characters, with uppercase, lowercase, numbers, and special symbols.
+        </p>
+
+        <form id="register-form">
+          <div class="form-group">
+            <label for="reg-name">Full Name</label>
+            <input type="text" id="reg-name" required placeholder="Dr. Robert Green">
+          </div>
+
+          <div class="form-group">
+            <label for="reg-email">Email Address</label>
+            <input type="email" id="reg-email" required placeholder="robert.green@hospital.com">
+          </div>
+
+          <div class="form-group">
+            <label for="reg-role">System Role</label>
+            <select id="reg-role">
+              <option value="PATIENT">Patient</option>
+              <option value="DOCTOR">Doctor</option>
+              <option value="RECEPTIONIST">Receptionist</option>
+              <option value="ADMIN">System Administrator</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="reg-password">Password</label>
+            <input type="password" id="reg-password" required placeholder="e.g. HospSecure#2026">
+          </div>
+
+          <div class="password-checklist">
+            <div id="rule-length" class="check-item">At least 8 characters</div>
+            <div id="rule-upper" class="check-item">At least 1 uppercase letter</div>
+            <div id="rule-lower" class="check-item">At least 1 lowercase letter</div>
+            <div id="rule-number" class="check-item">At least 1 numeric digit</div>
+            <div id="rule-symbol" class="check-item">At least 1 special character (!@#$%^&*)</div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Create Account</button>
+            <button type="button" class="btn btn-outline" onclick="fillTestPassword('weak')">Try Weak Password</button>
+            <button type="button" class="btn btn-outline" onclick="fillTestPassword('strong')">Fill Strong Password</button>
+          </div>
+        </form>
+
+        <div id="register-alert" class="alert hidden"></div>
+      </div>
+    </section>
+
+    <!-- Tab 3: Role-Based Portals (RBAC) -->
+    <section id="tab-rbac" class="tab-content">
+      <div class="card">
+        <h2>Role-Based Access Control (RBAC) Verification (US-03 / SEC-REQ-1.1)</h2>
+        <p class="description">
+          Tests endpoint boundaries using the current JWT session. Access is granted only if your role matches the portal requirements. Unauthorized attempts return HTTP 403 Forbidden.
+        </p>
+
+        <div class="rbac-grid">
+          <div class="portal-box">
+            <h3>Patient Records Portal</h3>
+            <p>Requires: <code>PATIENT</code> or <code>ADMIN</code></p>
+            <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/patient')">Access Patient Portal</button>
+          </div>
+
+          <div class="portal-box">
+            <h3>Doctor Clinical Portal</h3>
+            <p>Requires: <code>DOCTOR</code> or <code>ADMIN</code></p>
+            <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/doctor')">Access Doctor Portal</button>
+          </div>
+
+          <div class="portal-box">
+            <h3>Reception Onboarding Portal</h3>
+            <p>Requires: <code>RECEPTIONIST</code> or <code>ADMIN</code></p>
+            <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/receptionist')">Access Reception Portal</button>
+          </div>
+        </div>
+
+        <div id="rbac-result" class="portal-result hidden">
+          <h4 id="rbac-result-title">Response</h4>
+          <pre id="rbac-result-json"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 4: Immutable Audit Trail -->
+    <section id="tab-audit" class="tab-content">
+      <div class="card">
+        <div class="card-header-flex">
+          <div>
+            <h2>Immutable Audit Trail (US-14 / SEC-REQ-2.1)</h2>
+            <p class="description">Every authentication attempt, lockout event, and RBAC rejection is recorded in an append-only log store.</p>
+          </div>
+          <button class="btn btn-outline" onclick="fetchAuditLogs()">Refresh Audit Trail</button>
+        </div>
+
+        <div id="audit-table-wrapper" class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Timestamp (UTC)</th>
+                <th>Actor User</th>
+                <th>Role</th>
+                <th>Action Type</th>
+                <th>Target Resource</th>
+                <th>Status</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <tr>
+                <td colspan="7" class="text-center">Click Refresh to load audit records (Admin credentials required).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="audit-alert" class="alert hidden"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <div class="footer-container">
+      <span>Hospital Management System - Team E13</span>
+      <span>Sprint 1 Deliverable: Automated PRs, Commits & Verification</span>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+'use strict';
+
+const express = require('express');
+const router = express.Router();
+const patientService = require('../services/patientService');
+const authenticateToken = require('../middleware/auth');
+const requireRole = require('../middleware/rbac');
+
+// Only RECEPTIONIST, DOCTOR, and ADMIN can register or view patients
+const PATIENT_ACCESS_ROLES = ['RECEPTIONIST', 'DOCTOR', 'ADMIN'];
+
+/**
+ * POST /api/v1/patients/register
+ * Register a new patient with a unique 10-digit MPI ID (US-04 / FR-PAT-01, FR-PAT-02)
+ */
+router.post('/register', authenticateToken, requireRole(PATIENT_ACCESS_ROLES), (req, res) => {
+  try {
+    const { name, dateOfBirth, gender, phone, bloodGroup, emergencyContact } = req.body;
+    const clientIp = req.ip || req.connection?.remoteAddress;
+
+    const patient = patientService.registerPatient({
+      name,
+      dateOfBirth,
+      gender,
+      phone,
+      bloodGroup,
+      emergencyContact,
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      clientIp
+    });
+
+    return res.status(201).json({
+      status: 'success',
+      message: `Patient registered successfully with ID ${patient.patientId}`,
+      data: { patient }
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: 'https://hms.hospital.com/errors/patient-registration-failed',
+      title: 'Patient Registration Error',
+      status,
+      detail: error.message,
+      errors: error.errors || undefined
+    });
+  }
+});
+
+/**
+ * GET /api/v1/patients
+ * Retrieve all registered patients (RECEPTIONIST / DOCTOR / ADMIN only)
+ */
+router.get('/', authenticateToken, requireRole(PATIENT_ACCESS_ROLES), (req, res) => {
+  try {
+    const patients = patientService.getAllPatients();
+    return res.status(200).json({
+      status: 'success',
+      count: patients.length,
+      data: { patients }
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: 'https://hms.hospital.com/errors/patient-fetch-failed',
+      title: 'Patient Fetch Error',
+      status,
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/v1/patients/:patientId
+ * Retrieve a single patient by 10-digit MPI ID (RECEPTIONIST / DOCTOR / ADMIN only)
+ */
+router.get('/:patientId', authenticateToken, requireRole(PATIENT_ACCESS_ROLES), (req, res) => {
+  try {
+    const patient = patientService.getPatientById(req.params.patientId);
+    return res.status(200).json({
+      status: 'success',
+      data: { patient }
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: 'https://hms.hospital.com/errors/patient-not-found',
+      title: 'Patient Not Found',
+      status,
+      detail: error.message
+    });
+  }
+});
+
+module.exports = router;

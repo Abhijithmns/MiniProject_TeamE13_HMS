@@ -3,6 +3,7 @@ const path = require('path');
 const authRoutes = require('./routes/authRoutes');
 const roleRoutes = require('./routes/roleRoutes');
 const auditRoutes = require('./routes/auditRoutes');
+const patientRoutes = require('./routes/patientRoutes');
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/portal', roleRoutes);
 app.use('/api/v1/audit', auditRoutes);
+app.use('/api/v1/patients', patientRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

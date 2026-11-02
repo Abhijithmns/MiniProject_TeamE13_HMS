@@ -3,13 +3,13 @@ const bcrypt = require('bcryptjs');
 class Database {
   constructor() {
     this.users = new Map();
-    this.patients = new Map(); // keyed by 10-digit patientId (MPI)
+    this.patients = new Map();          // keyed by 10-digit patientId (MPI)
+    this.prescriptions = new Map();     // keyed by prescriptionId (US-11)
     this.auditLogs = [];
     this.seedDefaults();
   }
 
   seedDefaults() {
-    // Seed initial users for immediate testing and verification
     const defaultPasswordHash = bcrypt.hashSync('HospSecure#2026', 10);
 
     const defaultUsers = [
@@ -97,16 +97,13 @@ class Database {
 
   // ─── Patient Store (US-04 / FR-PAT-01, FR-PAT-02) ───────────────────────────
 
-  /**
-   * Create a new patient record with a unique 10-digit MPI ID.
-   */
   createPatient(patientData) {
     const patient = {
-      patientId: patientData.patientId,       // 10-digit unique MPI ID
+      patientId: patientData.patientId,
       name: patientData.name,
       dateOfBirth: patientData.dateOfBirth,
       gender: patientData.gender,
-      phone: patientData.phone,               // stored as 10-digit string
+      phone: patientData.phone,
       bloodGroup: patientData.bloodGroup || null,
       emergencyContact: patientData.emergencyContact,
       registeredAt: new Date().toISOString()
@@ -123,9 +120,35 @@ class Database {
     return [...this.patients.values()];
   }
 
+  // ─── Prescription Store (US-11 / FR-EHR-04, SEC-REQ-2.2) ────────────────────
+
+  createPrescription(data) {
+    const prescription = {
+      prescriptionId: data.prescriptionId,
+      patientId: data.patientId,
+      patientName: data.patientName,
+      doctorId: data.doctorId,
+      doctorName: data.doctorName,
+      diagnosis: data.diagnosis,
+      vitals: data.vitals,           // { bp, temperature, weight, pulse }
+      medicines: data.medicines,     // [{ name, dosage, frequency, duration }]
+      verificationCode: data.verificationCode,  // HMAC-based tamper-evident code
+      issuedAt: new Date().toISOString()
+    };
+    this.prescriptions.set(prescription.prescriptionId, prescription);
+    return prescription;
+  }
+
+  findPrescriptionById(prescriptionId) {
+    return this.prescriptions.get(prescriptionId) || null;
+  }
+
+  getPrescriptionsByPatient(patientId) {
+    return [...this.prescriptions.values()].filter(p => p.patientId === patientId);
+  }
+
   // ─── Audit Log Store ─────────────────────────────────────────────────────────
 
-  // Immutable audit log store: Append-only
   appendAuditLog(entry) {
     const record = {
       logId: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -138,19 +161,18 @@ class Database {
       status: entry.status || 'SUCCESS',
       details: entry.details || ''
     };
-    // Append to array - no update or delete allowed
     this.auditLogs.push(Object.freeze(record));
     return record;
   }
 
   getAuditLogs() {
-    // Return copy of audit logs sorted newest first
     return [...this.auditLogs].reverse();
   }
 
   reset() {
     this.users.clear();
     this.patients.clear();
+    this.prescriptions.clear();
     this.auditLogs = [];
     this.seedDefaults();
   }

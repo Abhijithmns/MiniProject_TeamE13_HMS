@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 class Database {
   constructor() {
     this.users = new Map();
+    this.patients = new Map(); // keyed by 10-digit patientId (MPI)
     this.auditLogs = [];
     this.seedDefaults();
   }
@@ -94,6 +95,36 @@ class Database {
     return user;
   }
 
+  // ─── Patient Store (US-04 / FR-PAT-01, FR-PAT-02) ───────────────────────────
+
+  /**
+   * Create a new patient record with a unique 10-digit MPI ID.
+   */
+  createPatient(patientData) {
+    const patient = {
+      patientId: patientData.patientId,       // 10-digit unique MPI ID
+      name: patientData.name,
+      dateOfBirth: patientData.dateOfBirth,
+      gender: patientData.gender,
+      phone: patientData.phone,               // stored as 10-digit string
+      bloodGroup: patientData.bloodGroup || null,
+      emergencyContact: patientData.emergencyContact,
+      registeredAt: new Date().toISOString()
+    };
+    this.patients.set(patient.patientId, patient);
+    return patient;
+  }
+
+  findPatientById(patientId) {
+    return this.patients.get(String(patientId)) || null;
+  }
+
+  getAllPatients() {
+    return [...this.patients.values()];
+  }
+
+  // ─── Audit Log Store ─────────────────────────────────────────────────────────
+
   // Immutable audit log store: Append-only
   appendAuditLog(entry) {
     const record = {
@@ -119,6 +150,7 @@ class Database {
 
   reset() {
     this.users.clear();
+    this.patients.clear();
     this.auditLogs = [];
     this.seedDefaults();
   }

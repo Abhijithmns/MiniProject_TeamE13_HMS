@@ -8,8 +8,8 @@ on:
 
 jobs:
   test:
+    name: Automated Unit Tests
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -23,5 +23,38 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run Automated Test Suite
+      - name: Run Test Suite
         run: npm test
+
+  syntax-check:
+    name: Code Syntax & Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate JavaScript Syntax
+        run: |
+          for file in $(find src -name "*.js"); do
+            node --check "$file"
+          done
+
+  security-audit:
+    name: Security Vulnerability Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Dependency Audit
+        run: npm audit --audit-level=high

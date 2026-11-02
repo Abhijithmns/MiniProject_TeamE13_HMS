@@ -201,6 +201,7 @@ class AuthService {
 
         const err = new Error(`Invalid email or password. ${remainingAttempts} attempt(s) remaining before account lockout.`);
         err.status = 401;
+        err.locked = false;
         err.attemptsRemaining = remainingAttempts;
         throw err;
       }
@@ -243,6 +244,66 @@ class AuthService {
         email: user.email,
         role: user.role
       }
+    };
+  }
+
+  /**
+   * Check current lockout status for an email (US-02 / FR-AUTH-02)
+   */
+  getLockoutStatus(email) {
+    const user = db.findUserByEmail(email);
+    if (!user) {
+      return { exists: false, isLocked: false };
+    }
+
+    const now = Date.now();
+    const isLocked = !!(user.lockedUntil && user.lockedUntil > now);
+    const remainingSeconds = isLocked ? Math.ceil((user.lockedUntil - now) / 1000) : 0;
+    const remainingMinutes = isLocked ? Math.ceil(remainingSeconds / 60) : 0;
+
+    return {
+      exists: true,
+      email: user.email,
+      isLocked,
+      failedAttempts: user.failedAttempts || 0,
+      maxAllowedAttempts: config.MAX_FAILED_ATTEMPTS,
+      attemptsRemaining: Math.max(0, config.MAX_FAILED_ATTEMPTS - (user.failedAttempts || 0)),
+      remainingSeconds,
+      remainingMinutes,
+      lockedUntil: user.lockedUntil ? new Date(user.lockedUntil).toISOString() : null
+    };
+  }
+
+  /**
+   * Administrative unlock for an account (US-02 / FR-AUTH-02)
+   */
+  unlockAccount({ email, adminUserId = 'ADMIN', clientIp = '127.0.0.1' }) {
+    const user = db.findUserByEmail(email);
+    if (!user) {
+      const err = new Error('User account not found');
+      err.status = 404;
+      throw err;
+    }
+
+    db.updateUser(user.email, {
+      failedAttempts: 0,
+      lockedUntil: null
+    });
+
+    db.appendAuditLog({
+      actorUserId: adminUserId,
+      actorRole: 'ADMIN',
+      clientIp,
+      actionType: 'ACCOUNT_UNLOCKED',
+      targetResource: `User:${user.email}`,
+      status: 'SUCCESS',
+      details: 'Account unlocked by administrator'
+    });
+
+    return {
+      email: user.email,
+      status: 'UNLOCKED',
+      message: 'Account successfully unlocked. Failed attempts reset to 0.'
     };
   }
 }

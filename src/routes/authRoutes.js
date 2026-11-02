@@ -65,6 +65,37 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// GET /api/v1/auth/lockout-status/:email (US-02 / FR-AUTH-02)
+router.get('/lockout-status/:email', (req, res) => {
+  const email = req.params.email;
+  const status = authService.getLockoutStatus(email);
+  return res.status(200).json({
+    status: 'success',
+    data: status
+  });
+});
+
+// POST /api/v1/auth/unlock (Administrative account unlock - US-02)
+router.post('/unlock', (req, res) => {
+  try {
+    const { email } = req.body;
+    const clientIp = req.ip || req.connection?.remoteAddress;
+    const result = authService.unlockAccount({ email, clientIp });
+    return res.status(200).json({
+      status: 'success',
+      data: result
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: 'https://hms.hospital.com/errors/unlock-failed',
+      title: 'Unlock Failed',
+      status,
+      detail: error.message
+    });
+  }
+});
+
 // GET /api/v1/auth/me (Protected current user session)
 router.get('/me', authenticateToken, (req, res) => {
   return res.status(200).json({

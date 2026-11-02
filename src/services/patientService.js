@@ -3,13 +3,13 @@
 const db = require('../db');
 
 /**
- * Patient Service — US-04 / FR-PAT-01, FR-PAT-02
- * Handles patient registration with a unique 10-digit Master Patient Index (MPI) ID.
+ * Patient Service — US-04, US-05 / FR-PAT-01, FR-PAT-02, FR-PAT-03
+ * Handles patient registration and quick search by name, phone, or MPI ID.
  */
 class PatientService {
   /**
    * Generates a unique 10-digit Patient ID (Master Patient Index).
-   * Format: 4-digit year + 6-digit zero-padded sequential number → e.g. 2026000001
+   * Format: 4-digit year + 6-digit zero-padded sequential number e.g. 2026000001
    * Guaranteed unique against existing patients in the store.
    */
   generatePatientId() {
@@ -73,10 +73,6 @@ class PatientService {
 
   /**
    * Register a new patient (US-04 / FR-PAT-01, FR-PAT-02).
-   * @param {object} data - Patient data from request body
-   * @param {string} actorUserId - ID of the staff member performing registration
-   * @param {string} actorRole - Role of the actor
-   * @param {string} clientIp - Client IP for audit logging
    */
   registerPatient({ name, dateOfBirth, gender, phone, bloodGroup, emergencyContact, actorUserId, actorRole, clientIp = '127.0.0.1' }) {
     const errors = this.validatePatientInput({ name, dateOfBirth, gender, phone, bloodGroup, emergencyContact });
@@ -131,6 +127,73 @@ class PatientService {
       throw err;
     }
     return patient;
+  }
+
+  /**
+   * Quick patient search by exact Patient ID, exact phone number,
+   * or partial (case-insensitive) patient name. (US-05 / FR-PAT-03)
+   *
+   * @param {string} query - The search string from clinic staff
+   * @param {string} actorUserId - For audit logging
+   * @param {string} actorRole - For audit logging
+   * @param {string} clientIp - For audit logging
+   * @returns {{ results: Array, query: string, count: number, searchedBy: string }}
+   */
+  searchPatients({ query, actorUserId, actorRole, clientIp = '127.0.0.1' }) {
+    if (!query || typeof query !== 'string' || query.trim().length === 0) {
+      const err = new Error('Search query is required');
+      err.status = 400;
+      throw err;
+    }
+
+    const q = query.trim();
+    const qLower = q.toLowerCase();
+    const qDigits = q.replace(/\D/g, '');
+
+    const allPatients = db.getAllPatients();
+    let results = [];
+    let searchedBy = 'name'; // default
+
+    // Search priority:
+    // 1. Exact 10-digit Patient ID — try patientId first, if found use it
+    // 2. If not found as patientId (or no exact match), try as phone number
+    // 3. Otherwise partial name match (case-insensitive)
+    if (/^\d{10}$/.test(q)) {
+      // Try exact Patient ID first
+      const byId = db.findPatientById(q);
+      if (byId) {
+        results = [byId];
+        searchedBy = 'patientId';
+      } else {
+        // Fall through to phone search — same 10-digit format
+        results = allPatients.filter(p => p.phone === qDigits);
+        searchedBy = 'phone';
+      }
+    }
+    // Partial name match (case-insensitive)
+    else {
+      results = allPatients.filter(p =>
+        p.name.toLowerCase().includes(qLower)
+      );
+      searchedBy = 'name';
+    }
+
+    db.appendAuditLog({
+      actorUserId: actorUserId || 'SYSTEM',
+      actorRole: actorRole || 'RECEPTIONIST',
+      clientIp,
+      actionType: 'PATIENT_SEARCH',
+      targetResource: 'Patient:SEARCH',
+      status: 'SUCCESS',
+      details: `Patient search by ${searchedBy}: "${q}" — ${results.length} result(s) found`
+    });
+
+    return {
+      query: q,
+      searchedBy,
+      count: results.length,
+      results
+    };
   }
 }
 

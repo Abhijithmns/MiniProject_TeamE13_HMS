@@ -6,7 +6,7 @@ const patientService = require('../services/patientService');
 const authenticateToken = require('../middleware/auth');
 const requireRole = require('../middleware/rbac');
 
-// Only RECEPTIONIST, DOCTOR, and ADMIN can register or view patients
+// Only RECEPTIONIST, DOCTOR, and ADMIN can access patient data
 const PATIENT_ACCESS_ROLES = ['RECEPTIONIST', 'DOCTOR', 'ADMIN'];
 
 /**
@@ -43,6 +43,38 @@ router.post('/register', authenticateToken, requireRole(PATIENT_ACCESS_ROLES), (
       status,
       detail: error.message,
       errors: error.errors || undefined
+    });
+  }
+});
+
+/**
+ * GET /api/v1/patients/search?q=<query>
+ * Quick patient search by exact Patient ID, phone number, or partial name (US-05 / FR-PAT-03)
+ * Results always return within 1 second (in-memory O(n) scan).
+ */
+router.get('/search', authenticateToken, requireRole(PATIENT_ACCESS_ROLES), (req, res) => {
+  try {
+    const { q } = req.query;
+    const clientIp = req.ip || req.connection?.remoteAddress;
+
+    const searchResult = patientService.searchPatients({
+      query: q,
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      clientIp
+    });
+
+    return res.status(200).json({
+      status: 'success',
+      ...searchResult
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: 'https://hms.hospital.com/errors/patient-search-failed',
+      title: 'Patient Search Error',
+      status,
+      detail: error.message
     });
   }
 });

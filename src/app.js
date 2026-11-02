@@ -8,6 +8,21 @@ const prescriptionRoutes = require('./routes/prescriptionRoutes');
 
 const app = express();
 
+// Performance monitoring middleware (NFR-PERF-01 / US-15)
+app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
+  const originalSend = res.send;
+  res.send = function(...args) {
+    const end = process.hrtime.bigint();
+    const durationMs = Number(end - start) / 1e6;
+    if (!res.headersSent) {
+      res.setHeader('X-Response-Time', `${durationMs.toFixed(2)}ms`);
+    }
+    return originalSend.apply(this, args);
+  };
+  next();
+});
+
 // Parse incoming JSON requests
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -27,6 +42,23 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
     system: 'Hospital Management System',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// System performance verification endpoint (NFR-PERF-01 / US-15)
+app.get('/api/v1/system/performance', (req, res) => {
+  const memory = process.memoryUsage();
+  res.status(200).json({
+    status: 'healthy',
+    targetResponseTimeMs: 500,
+    concurrencyTargetUsers: 200,
+    systemUptime: process.uptime(),
+    memoryUsageMB: {
+      rss: (memory.rss / (1024 * 1024)).toFixed(2),
+      heapUsed: (memory.heapUsed / (1024 * 1024)).toFixed(2),
+      heapTotal: (memory.heapTotal / (1024 * 1024)).toFixed(2)
+    },
     timestamp: new Date().toISOString()
   });
 });

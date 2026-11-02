@@ -1,0 +1,25 @@
+{
+  "name": "hospital-management-system",
+  "version": "1.0.0",
+  "description": "Hospital Management System (HMS) developed for SE course (PES University).",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Abhijithmns/MiniProject_TeamE13_HMS.git"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Abhijithmns/MiniProject_TeamE13_HMS/issues"
+  },
+  "homepage": "https://github.com/Abhijithmns/MiniProject_TeamE13_HMS#readme",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3"
+  }
+}

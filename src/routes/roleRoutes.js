@@ -88,4 +88,55 @@ router.get('/receptionist', requireRole(['RECEPTIONIST']), (req, res) => {
   });
 });
 
+// Patient Record Access with IDOR Protection (US-03 / SEC-REQ-1.1 / TC-HMS-09)
+router.get('/patient/records/:patientId', requireRole(['PATIENT', 'DOCTOR', 'ADMIN']), requireRole.verifyPatientOwnership('patientId'), (req, res) => {
+  const patientId = req.params.patientId;
+
+  db.appendAuditLog({
+    actorUserId: req.user.id,
+    actorRole: req.user.role,
+    clientIp: req.ip || req.connection?.remoteAddress,
+    actionType: 'PATIENT_RECORD_VIEW',
+    targetResource: `Record:${patientId}`,
+    status: 'SUCCESS',
+    details: 'Authorized access to patient medical record'
+  });
+
+  return res.status(200).json({
+    status: 'success',
+    data: {
+      recordId: `REC-${patientId}`,
+      patientId: patientId,
+      owner: req.user.email,
+      clinicalSummary: 'All vitals normal. Routine health checkup completed.'
+    }
+  });
+});
+
+// Doctor-Only Clinical Notes: Receptionists and Patients are strictly forbidden (US-03)
+router.get('/doctor/clinical-notes/:patientId', requireRole(['DOCTOR']), (req, res) => {
+  const patientId = req.params.patientId;
+
+  db.appendAuditLog({
+    actorUserId: req.user.id,
+    actorRole: req.user.role,
+    clientIp: req.ip || req.connection?.remoteAddress,
+    actionType: 'CLINICAL_NOTES_VIEW',
+    targetResource: `Diagnosis:${patientId}`,
+    status: 'SUCCESS',
+    details: 'Doctor accessed confidential clinical diagnosis'
+  });
+
+  return res.status(200).json({
+    status: 'success',
+    data: {
+      patientId: patientId,
+      doctor: req.user.name,
+      diagnosis: 'Acute Viral Pharyngitis',
+      prescription: 'Amoxicillin 500mg TDS for 5 days',
+      confidentiality: 'RESTRICTED_CLINICAL_ACCESS'
+    }
+  });
+});
+
 module.exports = router;

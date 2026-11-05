@@ -1,4 +1,4 @@
-// Client-side Application Logic for Sprint 1 Prototype
+// Client-side Application Logic for Hospital Management System
 
 let currentToken = localStorage.getItem('hms_token') || null;
 let currentUser = JSON.parse(localStorage.getItem('hms_user') || 'null');
@@ -59,48 +59,139 @@ function updateRule(elementId, isValid) {
 function setupForms() {
   // Login Form
   const loginForm = document.getElementById('login-form');
-  loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = document.getElementById('login-email').value.trim();
-    const password = document.getElementById('login-password').value;
-    await executeLogin(email, password);
-  });
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      await executeLogin(email, password);
+    });
+  }
 
   // Registration Form
   const regForm = document.getElementById('register-form');
-  regForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = document.getElementById('reg-name').value.trim();
-    const email = document.getElementById('reg-email').value.trim();
-    const role = document.getElementById('reg-role').value;
-    const password = document.getElementById('reg-password').value;
+  if (regForm) {
+    regForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('reg-name').value.trim();
+      const email = document.getElementById('reg-email').value.trim();
+      const role = document.getElementById('reg-role').value;
+      const password = document.getElementById('reg-password').value;
 
-    const alertEl = document.getElementById('register-alert');
-    alertEl.className = 'alert info';
-    alertEl.textContent = 'Submitting registration...';
-    alertEl.classList.remove('hidden');
+      const alertEl = document.getElementById('register-alert');
+      alertEl.className = 'alert info';
+      alertEl.textContent = 'Submitting registration...';
+      alertEl.classList.remove('hidden');
 
-    try {
-      const res = await fetch('/api/v1/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, role, password })
-      });
-      const data = await res.json();
+      try {
+        const res = await fetch('/api/v1/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, role, password })
+        });
+        const data = await res.json();
 
-      if (!res.ok) {
-        throw new Error(data.detail || 'Registration failed');
+        if (!res.ok) {
+          throw new Error(data.detail || 'Registration failed');
+        }
+
+        alertEl.className = 'alert success';
+        alertEl.textContent = `User ${data.data.name} (${data.data.role}) registered successfully. User ID: ${data.data.id}. You can now sign in.`;
+        regForm.reset();
+        document.querySelectorAll('.password-checklist .check-item').forEach(el => el.classList.remove('valid'));
+      } catch (err) {
+        alertEl.className = 'alert error';
+        alertEl.textContent = `Registration Rejected: ${err.message}`;
+      }
+    });
+  }
+
+  // Doctor Consultation Form (US-09)
+  const ehrForm = document.getElementById('ehr-form');
+  if (ehrForm) {
+    ehrForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const alertEl = document.getElementById('ehr-alert');
+      const resultBox = document.getElementById('ehr-result');
+      const displayEl = document.getElementById('ehr-display');
+
+      if (!currentToken) {
+        alertEl.className = 'alert error';
+        alertEl.textContent = 'Please log in with a DOCTOR or ADMIN account first.';
+        alertEl.classList.remove('hidden');
+        return;
       }
 
-      alertEl.className = 'alert success';
-      alertEl.textContent = `User ${data.data.name} (${data.data.role}) registered successfully. User ID: ${data.data.id}. You can now sign in.`;
-      regForm.reset();
-      document.querySelectorAll('.password-checklist .check-item').forEach(el => el.classList.remove('valid'));
-    } catch (err) {
-      alertEl.className = 'alert error';
-      alertEl.textContent = `Registration Rejected: ${err.message}`;
-    }
-  });
+      const patientId = document.getElementById('ehr-patient-id').value.trim();
+      const appointmentId = document.getElementById('ehr-appointment-id').value.trim() || undefined;
+      const bp = document.getElementById('ehr-bp').value.trim() || undefined;
+      const pulse = document.getElementById('ehr-pulse').value.trim() || undefined;
+      const temp = document.getElementById('ehr-temp').value.trim() || undefined;
+      const spo2 = document.getElementById('ehr-spo2').value.trim() || undefined;
+      const symptoms = document.getElementById('ehr-symptoms').value.trim();
+      const examinationNotes = document.getElementById('ehr-examination').value.trim();
+      const diagnosis = document.getElementById('ehr-diagnosis').value.trim();
+
+      const rxName = document.getElementById('rx-name').value.trim();
+      const rxDosage = document.getElementById('rx-dosage').value.trim();
+      const rxFrequency = document.getElementById('rx-frequency').value.trim();
+      const rxDuration = document.getElementById('rx-duration').value.trim();
+
+      const prescriptions = [];
+      if (rxName && rxDosage) {
+        prescriptions.push({
+          name: rxName,
+          dosage: rxDosage,
+          frequency: rxFrequency || 'Once daily',
+          durationDays: rxDuration ? Number(rxDuration) : 5
+        });
+      }
+
+      alertEl.className = 'alert info';
+      alertEl.textContent = 'Saving consultation and generating digital prescription hash...';
+      alertEl.classList.remove('hidden');
+
+      try {
+        const res = await fetch('/api/v1/ehr/consultations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentToken}`
+          },
+          body: JSON.stringify({
+            patientId,
+            appointmentId,
+            vitals: {
+              bloodPressure: bp,
+              pulse: pulse ? Number(pulse) : undefined,
+              temperature: temp ? Number(temp) : undefined,
+              spo2: spo2 ? Number(spo2) : undefined
+            },
+            symptoms,
+            examinationNotes,
+            diagnosis,
+            prescriptions
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || data.title || 'Failed to save consultation');
+        }
+
+        alertEl.className = 'alert success';
+        alertEl.textContent = `Consultation recorded successfully (${data.data.consultationId}). Prescriptions dispatched to Pharmacy Queue.`;
+
+        displayEl.textContent = JSON.stringify(data.data, null, 2);
+        resultBox.classList.remove('hidden');
+        ehrForm.reset();
+      } catch (err) {
+        alertEl.className = 'alert error';
+        alertEl.textContent = `Consultation Error: ${err.message}`;
+        resultBox.classList.add('hidden');
+      }
+    });
+  }
 }
 
 async function executeLogin(email, password) {
@@ -118,14 +209,11 @@ async function executeLogin(email, password) {
     const data = await res.json();
 
     if (!res.ok) {
-      if (res.status === 403 && data.locked) {
-        alertEl.className = 'alert error';
-        alertEl.textContent = `SECURITY LOCK: ${data.detail}`;
-      } else {
-        alertEl.className = 'alert error';
-        alertEl.textContent = `Authentication Failed: ${data.detail}`;
+      if (data.locked) {
+        throw new Error(`SECURITY ALERT: ${data.detail} (${data.lockedUntil})`);
       }
-      return;
+      const attemptsInfo = data.remainingAttempts !== undefined ? ` (Attempts remaining: ${data.remainingAttempts})` : '';
+      throw new Error((data.detail || 'Login failed') + attemptsInfo);
     }
 
     currentToken = data.data.accessToken;
@@ -134,18 +222,31 @@ async function executeLogin(email, password) {
     localStorage.setItem('hms_user', JSON.stringify(currentUser));
 
     alertEl.className = 'alert success';
-    alertEl.textContent = `Welcome, ${currentUser.name} (${currentUser.role}). Signed in successfully with JWT.`;
+    alertEl.textContent = `Welcome ${currentUser.name}! Authenticated with role: ${currentUser.role}.`;
 
-    document.getElementById('token-display').textContent = JSON.stringify(data.data, null, 2);
-    document.getElementById('token-card').classList.remove('hidden');
+    const tokenCard = document.getElementById('token-card');
+    const tokenDisplay = document.getElementById('token-display');
+    tokenDisplay.textContent = currentToken;
+    tokenCard.classList.remove('hidden');
+
     updateSessionUI();
   } catch (err) {
     alertEl.className = 'alert error';
-    alertEl.textContent = `Error: ${err.message}`;
+    alertEl.textContent = err.message;
   }
 }
 
-// Quick Fill helper
+function updateSessionUI() {
+  const badge = document.getElementById('session-badge');
+  if (currentUser) {
+    badge.textContent = `${currentUser.name} (${currentUser.role})`;
+    badge.style.background = '#047857';
+  } else {
+    badge.textContent = 'Not Logged In';
+    badge.style.background = '#374151';
+  }
+}
+
 function quickFill(email, password) {
   document.getElementById('login-email').value = email;
   document.getElementById('login-password').value = password;
@@ -154,43 +255,38 @@ function quickFill(email, password) {
 function fillTestPassword(type) {
   const pwdInput = document.getElementById('reg-password');
   if (type === 'weak') {
-    pwdInput.value = 'weak';
+    pwdInput.value = 'pass123';
   } else {
     pwdInput.value = 'HospSecure#2026';
   }
   pwdInput.dispatchEvent(new Event('input'));
 }
 
-// Simulate 5 Failed Logins (Demonstrating FR-AUTH-02 / TC-HMS-02)
 async function simulateFailedAttempts() {
   const email = document.getElementById('login-email').value.trim() || 'doctor.smith@hospital.com';
   document.getElementById('login-email').value = email;
   const alertEl = document.getElementById('login-alert');
+
   alertEl.className = 'alert info';
+  alertEl.textContent = `Simulating 5 consecutive bad password attempts for ${email}...`;
   alertEl.classList.remove('hidden');
 
   for (let i = 1; i <= 5; i++) {
-    alertEl.textContent = `Simulating wrong password attempt ${i} of 5 on ${email}...`;
     try {
       const res = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password: 'WrongPasswordAttempt' })
+        body: JSON.stringify({ email, password: 'WrongPassword@123' })
       });
       const data = await res.json();
-
-      if (i === 5) {
+      if (res.status === 403 && data.locked) {
         alertEl.className = 'alert error';
-        alertEl.textContent = `ACCOUNT LOCKED: ${data.detail}`;
-      } else {
-        alertEl.textContent = `Attempt ${i}: ${data.detail}`;
+        alertEl.textContent = `[Attempt ${i}/5] Lockout triggered! ${data.detail}. Status checked via API.`;
+        return;
       }
     } catch (e) {
-      alertEl.className = 'alert error';
-      alertEl.textContent = `Simulation error: ${e.message}`;
-      break;
+      console.error(e);
     }
-    await new Promise(r => setTimeout(r, 400));
   }
 }
 
@@ -205,29 +301,18 @@ function logoutUser() {
   alertEl.className = 'alert info';
   alertEl.textContent = 'You have logged out.';
   alertEl.classList.remove('hidden');
+
   document.getElementById('token-card').classList.add('hidden');
 }
 
-function updateSessionUI() {
-  const badge = document.getElementById('session-badge');
-  if (currentUser) {
-    badge.textContent = `Logged in: ${currentUser.name} [${currentUser.role}]`;
-    badge.classList.add('logged-in');
-  } else {
-    badge.textContent = 'Not Logged In';
-    badge.classList.remove('logged-in');
-  }
-}
-
-// Test RBAC Portal Endpoints (US-03 / SEC-REQ-1.1)
 async function testPortalAccess(endpoint) {
-  const resultCard = document.getElementById('rbac-result');
-  const titleEl = document.getElementById('rbac-result-title');
-  const jsonEl = document.getElementById('rbac-result-json');
+  const resultBox = document.getElementById('rbac-result');
+  const resultTitle = document.getElementById('rbac-result-title');
+  const resultJson = document.getElementById('rbac-result-json');
 
-  resultCard.classList.remove('hidden');
-  titleEl.textContent = `Testing Endpoint: ${endpoint}`;
-  jsonEl.textContent = 'Sending request with current Bearer token...';
+  resultBox.classList.remove('hidden');
+  resultTitle.textContent = `Testing: ${endpoint}`;
+  resultJson.textContent = 'Sending authenticated request...';
 
   try {
     const headers = {};
@@ -238,29 +323,32 @@ async function testPortalAccess(endpoint) {
     const res = await fetch(endpoint, { headers });
     const data = await res.json();
 
-    if (res.ok) {
-      titleEl.textContent = `HTTP ${res.status} OK: Access Granted`;
-      titleEl.style.color = '#065f46';
+    if (!res.ok) {
+      resultBox.style.borderLeft = '4px solid #ef4444';
+      resultJson.textContent = JSON.stringify({
+        httpStatus: res.status,
+        statusText: res.statusText,
+        errorPayload: data
+      }, null, 2);
     } else {
-      titleEl.textContent = `HTTP ${res.status} ${res.statusText}: Access Denied`;
-      titleEl.style.color = '#991b1b';
+      resultBox.style.borderLeft = '4px solid #10b981';
+      resultJson.textContent = JSON.stringify({
+        httpStatus: res.status,
+        responsePayload: data
+      }, null, 2);
     }
-
-    jsonEl.textContent = JSON.stringify(data, null, 2);
   } catch (err) {
-    titleEl.textContent = 'Request Failed';
-    titleEl.style.color = '#991b1b';
-    jsonEl.textContent = err.message;
+    resultBox.style.borderLeft = '4px solid #ef4444';
+    resultJson.textContent = `Network / Execution Error: ${err.message}`;
   }
 }
 
-// Fetch Audit Logs (US-14 / SEC-REQ-2.1)
 async function fetchAuditLogs() {
   const alertEl = document.getElementById('audit-alert');
   const tbody = document.getElementById('audit-tbody');
 
   alertEl.classList.add('hidden');
-  tbody.innerHTML = '<tr><td colspan="7" class="text-center">Loading audit events...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="7" class="text-center">Loading immutable audit logs...</td></tr>';
 
   try {
     const headers = {};
@@ -272,11 +360,7 @@ async function fetchAuditLogs() {
     const data = await res.json();
 
     if (!res.ok) {
-      alertEl.className = 'alert error';
-      alertEl.textContent = `Access Denied: ${data.detail || 'Admin role is required to view audit logs.'}`;
-      alertEl.classList.remove('hidden');
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="color: #991b1b;">Permission Denied. Please log in as System Administrator (admin@hospital.com).</td></tr>';
-      return;
+      throw new Error(data.detail || data.title || 'Access Denied: Admin privileges required to view audit trail.');
     }
 
     const logs = data.data.logs;

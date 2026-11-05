@@ -4,6 +4,8 @@ class Database {
   constructor() {
     this.users = new Map();
     this.patients = new Map(); // keyed by 10-digit patientId (MPI)
+    this.consultations = new Map(); // keyed by consultationId (CNS-XXXXXX)
+    this.pharmacyQueue = []; // live queue of prescriptions for dispensary (FR-PHARM-01)
     this.auditLogs = [];
     this.seedDefaults();
   }
@@ -123,6 +125,72 @@ class Database {
     return [...this.patients.values()];
   }
 
+  // ─── EHR Consultations Store (US-09 / FR-EHR-01, FR-EHR-02) ───────────────────
+
+  createConsultation(consultationData) {
+    const consultation = {
+      consultationId: consultationData.consultationId,
+      appointmentId: consultationData.appointmentId || null,
+      patientId: String(consultationData.patientId),
+      doctorId: consultationData.doctorId,
+      doctorName: consultationData.doctorName || 'Doctor',
+      symptoms: consultationData.symptoms || '',
+      examinationNotes: consultationData.examinationNotes || '',
+      vitals: {
+        bloodPressure: consultationData.vitals?.bloodPressure || null,
+        pulse: consultationData.vitals?.pulse || null,
+        temperature: consultationData.vitals?.temperature || null,
+        spo2: consultationData.vitals?.spo2 || null
+      },
+      diagnosis: consultationData.diagnosis,
+      prescriptions: Array.isArray(consultationData.prescriptions) ? consultationData.prescriptions : [],
+      prescriptionHash: consultationData.prescriptionHash || null,
+      lockedAt: consultationData.lockedAt || null,
+      createdAt: consultationData.createdAt || new Date().toISOString(),
+      updatedAt: consultationData.updatedAt || new Date().toISOString()
+    };
+    this.consultations.set(consultation.consultationId, consultation);
+    return consultation;
+  }
+
+  findConsultationById(consultationId) {
+    return this.consultations.get(String(consultationId)) || null;
+  }
+
+  getConsultationsByPatientId(patientId) {
+    const id = String(patientId);
+    return [...this.consultations.values()].filter(c => c.patientId === id);
+  }
+
+  getConsultationsByDoctorId(doctorId) {
+    return [...this.consultations.values()].filter(c => c.doctorId === doctorId);
+  }
+
+  getAllConsultations() {
+    return [...this.consultations.values()];
+  }
+
+  // ─── Pharmacy Queue Store (FR-PHARM-01) ──────────────────────────────────────
+
+  enqueuePrescription(entry) {
+    const queueItem = {
+      queueId: `RX-Q-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      consultationId: entry.consultationId,
+      patientId: entry.patientId,
+      doctorId: entry.doctorId,
+      prescriptions: entry.prescriptions,
+      prescriptionHash: entry.prescriptionHash,
+      status: 'PENDING_DISPENSE',
+      enqueuedAt: new Date().toISOString()
+    };
+    this.pharmacyQueue.push(queueItem);
+    return queueItem;
+  }
+
+  getPharmacyQueue() {
+    return [...this.pharmacyQueue];
+  }
+
   // ─── Audit Log Store ─────────────────────────────────────────────────────────
 
   // Immutable audit log store: Append-only
@@ -151,6 +219,8 @@ class Database {
   reset() {
     this.users.clear();
     this.patients.clear();
+    this.consultations.clear();
+    this.pharmacyQueue = [];
     this.auditLogs = [];
     this.seedDefaults();
   }

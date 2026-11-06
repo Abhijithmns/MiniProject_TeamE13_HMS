@@ -4,6 +4,7 @@ const authRoutes = require('./routes/authRoutes');
 const roleRoutes = require('./routes/roleRoutes');
 const auditRoutes = require('./routes/auditRoutes');
 const patientRoutes = require('./routes/patientRoutes');
+const ehrRoutes = require('./routes/ehrRoutes');
 
 const app = express();
 
@@ -19,6 +20,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/portal', roleRoutes);
 app.use('/api/v1/audit', auditRoutes);
 app.use('/api/v1/patients', patientRoutes);
+app.use('/api/v1/ehr', ehrRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

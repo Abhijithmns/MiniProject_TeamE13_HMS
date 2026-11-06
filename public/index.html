@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hospital Management System - Sprint 1 Prototype</title>
+  <title>Hospital Management System - Prototype</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
     <div class="header-container">
       <div>
         <h1 class="logo-title">Hospital Management System</h1>
-        <p class="subtitle">Sprint 1 Prototype: Authentication, Account Security, RBAC & Audit Trail</p>
+        <p class="subtitle">Prototype: Authentication, RBAC, Patient Management & EHR Consultations</p>
       </div>
       <div id="session-badge" class="session-badge">Not Logged In</div>
     </div>
@@ -22,6 +22,7 @@
       <button class="tab-btn active" data-tab="tab-login">Login & Lockout</button>
       <button class="tab-btn" data-tab="tab-register">Sign Up (Password Policy)</button>
       <button class="tab-btn" data-tab="tab-rbac">Role-Based Portals</button>
+      <button class="tab-btn" data-tab="tab-ehr">Doctor Consultation (US-09)</button>
       <button class="tab-btn" data-tab="tab-audit">Audit Trail (Admin)</button>
     </nav>
 
@@ -156,7 +157,84 @@
       </div>
     </section>
 
-    <!-- Tab 4: Immutable Audit Trail -->
+    <!-- Tab 4: Doctor Consultation (US-09) -->
+    <section id="tab-ehr" class="tab-content">
+      <div class="card">
+        <h2>Doctor Records Visit Notes, Vitals & Prescriptions (US-09 / FR-EHR-01, FR-EHR-02)</h2>
+        <p class="description">
+          Restricted to Doctors & Admins. Captures chief symptoms, objective vitals, clinical diagnosis, and prescribed medicines with SHA-256 digital signature hash.
+        </p>
+
+        <form id="ehr-form">
+          <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem;">
+            <div class="form-group" style="flex:1; min-width:200px;">
+              <label for="ehr-patient-id">Patient ID (10-Digit MPI) *</label>
+              <input type="text" id="ehr-patient-id" required placeholder="e.g. 1000000001">
+            </div>
+            <div class="form-group" style="flex:1; min-width:200px;">
+              <label for="ehr-appointment-id">Appointment ID (Optional)</label>
+              <input type="text" id="ehr-appointment-id" placeholder="e.g. APT-1029">
+            </div>
+          </div>
+
+          <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem;">
+            <div class="form-group" style="flex:1; min-width:130px;">
+              <label for="ehr-bp">Blood Pressure (BP)</label>
+              <input type="text" id="ehr-bp" placeholder="120/80">
+            </div>
+            <div class="form-group" style="flex:1; min-width:130px;">
+              <label for="ehr-pulse">Pulse (bpm)</label>
+              <input type="number" id="ehr-pulse" placeholder="74">
+            </div>
+            <div class="form-group" style="flex:1; min-width:130px;">
+              <label for="ehr-temp">Temperature (°F)</label>
+              <input type="number" step="0.1" id="ehr-temp" placeholder="98.6">
+            </div>
+            <div class="form-group" style="flex:1; min-width:130px;">
+              <label for="ehr-spo2">SpO2 (%)</label>
+              <input type="number" id="ehr-spo2" placeholder="99">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="ehr-symptoms">Chief Complaints / Symptoms</label>
+            <input type="text" id="ehr-symptoms" placeholder="e.g. Persistent dry cough and mild fever for 3 days">
+          </div>
+
+          <div class="form-group">
+            <label for="ehr-examination">Physical Examination Notes</label>
+            <textarea id="ehr-examination" rows="2" placeholder="e.g. Throat mildly congested, lungs clear bilaterally"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="ehr-diagnosis">Clinical Diagnosis *</label>
+            <input type="text" id="ehr-diagnosis" required placeholder="e.g. Acute viral bronchitis">
+          </div>
+
+          <div class="form-group">
+            <label>Prescribed Medication</label>
+            <div class="form-row" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+              <input type="text" id="rx-name" placeholder="Medicine Name (e.g. Amoxicillin 500mg)" style="flex:2; min-width:180px;">
+              <input type="text" id="rx-dosage" placeholder="Dosage (e.g. 1 cap)" style="flex:1; min-width:100px;">
+              <input type="text" id="rx-frequency" placeholder="Frequency (e.g. TDS)" style="flex:1; min-width:100px;">
+              <input type="number" id="rx-duration" placeholder="Days (e.g. 5)" style="flex:1; min-width:80px;">
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save Consultation & Issue Prescription</button>
+          </div>
+        </form>
+
+        <div id="ehr-alert" class="alert hidden"></div>
+        <div id="ehr-result" class="token-container hidden">
+          <h3>Saved Consultation Record (Digital Verification)</h3>
+          <pre id="ehr-display"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 5: Immutable Audit Trail -->
     <section id="tab-audit" class="tab-content">
       <div class="card">
         <div class="card-header-flex">
@@ -195,7 +273,7 @@
   <footer class="app-footer">
     <div class="footer-container">
       <span>Hospital Management System - Team E13</span>
-      <span>Sprint 1 Deliverable: Automated PRs, Commits & Verification</span>
+      <span>Sprint 2 Deliverable: Automated PRs, Commits & Verification</span>
     </div>
   </footer>
 

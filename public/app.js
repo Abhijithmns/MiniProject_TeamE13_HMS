@@ -192,6 +192,58 @@ function setupForms() {
       }
     });
   }
+
+  // Medical Addendum Form (US-10)
+  const addendumForm = document.getElementById('addendum-form');
+  if (addendumForm) {
+    addendumForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const alertEl = document.getElementById('addendum-alert');
+      const resultBox = document.getElementById('addendum-result');
+      const displayEl = document.getElementById('addendum-display');
+
+      if (!currentToken) {
+        alertEl.className = 'alert error';
+        alertEl.textContent = 'Please log in with a DOCTOR or ADMIN account first.';
+        alertEl.classList.remove('hidden');
+        return;
+      }
+
+      const consultationId = document.getElementById('addendum-consultation-id').value.trim();
+      const note = document.getElementById('addendum-note').value.trim();
+
+      alertEl.className = 'alert info';
+      alertEl.textContent = 'Appending signed addendum to medical record...';
+      alertEl.classList.remove('hidden');
+
+      try {
+        const res = await fetch(`/api/v1/ehr/consultations/${encodeURIComponent(consultationId)}/addendum`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentToken}`
+          },
+          body: JSON.stringify({ note })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || data.title || 'Failed to append addendum');
+        }
+
+        alertEl.className = 'alert success';
+        alertEl.textContent = `Addendum ${data.data.addendum.addendumId} appended permanently to ${consultationId} by Dr. ${data.data.addendum.doctorName}.`;
+
+        displayEl.textContent = JSON.stringify(data.data, null, 2);
+        resultBox.classList.remove('hidden');
+        addendumForm.reset();
+      } catch (err) {
+        alertEl.className = 'alert error';
+        alertEl.textContent = `Addendum Error: ${err.message}`;
+        resultBox.classList.add('hidden');
+      }
+    });
+  }
 }
 
 async function executeLogin(email, password) {

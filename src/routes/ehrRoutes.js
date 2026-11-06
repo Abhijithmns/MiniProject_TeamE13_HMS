@@ -58,6 +58,80 @@ router.post('/consultations', authenticateToken, requireRole(['DOCTOR', 'ADMIN']
 });
 
 /**
+ * PUT /api/v1/ehr/consultations/:id
+ * Direct update to clinical notes permitted ONLY within 24 hours (US-10 / FR-EHR-03, TC-HMS-05)
+ * After 24 hours, returns 403 Forbidden: Direct edits prohibited; submit addendum.
+ */
+router.put('/consultations/:id', authenticateToken, requireRole(['DOCTOR', 'ADMIN']), (req, res) => {
+  try {
+    const consultationId = req.params.id;
+    const clientIp = req.ip || req.connection?.remoteAddress;
+    const { diagnosis, symptoms, examinationNotes, vitals, simulatedCurrentTime } = req.body;
+
+    const updated = ehrService.updateConsultation(
+      consultationId,
+      { diagnosis, symptoms, examinationNotes, vitals },
+      {
+        actorUserId: req.user.id,
+        actorRole: req.user.role,
+        doctorName: req.user.name,
+        clientIp,
+        currentTime: simulatedCurrentTime ? new Date(simulatedCurrentTime).getTime() : Date.now()
+      }
+    );
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Consultation notes successfully updated within the 24-hour window.',
+      data: { consultation: updated }
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: error.type || 'https://hms.hospital.com/errors/ehr-update-failed',
+      title: error.status === 403 ? 'Direct Edits Prohibited' : 'EHR Update Error',
+      status,
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/v1/ehr/consultations/:id/addendum
+ * Append a permanent, timestamped addendum with physician name and ID (US-10 / FR-EHR-03)
+ */
+router.post('/consultations/:id/addendum', authenticateToken, requireRole(['DOCTOR', 'ADMIN']), (req, res) => {
+  try {
+    const consultationId = req.params.id;
+    const clientIp = req.ip || req.connection?.remoteAddress;
+    const { note, timestamp } = req.body;
+
+    const result = ehrService.appendAddendum(consultationId, {
+      note,
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      doctorName: req.user.name,
+      clientIp,
+      timestamp
+    });
+
+    return res.status(201).json({
+      status: 'success',
+      message: 'Addendum successfully appended to medical record.',
+      data: result
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: error.type || 'https://hms.hospital.com/errors/addendum-failed',
+      title: error.status === 403 ? 'Access Forbidden' : 'Addendum Error',
+      status,
+      detail: error.message
+    });
+  }
+});
+
+/**
  * GET /api/v1/ehr/consultations/:id
  * Retrieve a specific consultation record by ID.
  * RBAC: DOCTOR and ADMIN can access. RECEPTIONIST is denied access (US-03).

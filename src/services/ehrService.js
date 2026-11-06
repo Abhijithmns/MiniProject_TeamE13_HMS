@@ -3,6 +3,9 @@
 const crypto = require('crypto');
 const db = require('../db');
 
+// 24 hours in milliseconds (US-10 / FR-EHR-03)
+const LOCKOUT_PERIOD_MS = 24 * 60 * 60 * 1000;
+
 class EHRService {
   /**
    * Validate blood pressure string (e.g. "120/80")
@@ -154,6 +157,7 @@ class EHRService {
         instructions: p.instructions ? p.instructions.trim() : 'Take after meals'
       })),
       prescriptionHash,
+      addenda: [],
       createdAt: timestamp,
       updatedAt: timestamp
     });
@@ -185,6 +189,182 @@ class EHRService {
       consultation,
       prescriptionHash,
       downloadUrl: `/api/v1/ehr/consultations/${consultationId}/prescription`
+    };
+  }
+
+  /**
+   * Update clinical consultation notes within 24-hour lockout window (US-10 / FR-EHR-03, TC-HMS-05)
+   */
+  updateConsultation(consultationId, updates, {
+    actorUserId,
+    actorRole,
+    doctorName,
+    clientIp,
+    currentTime = Date.now()
+  }) {
+    const consultation = db.findConsultationById(consultationId);
+    if (!consultation) {
+      const err = new Error(`Consultation record ${consultationId} not found.`);
+      err.status = 404;
+      err.type = 'https://hms.hospital.com/errors/not-found';
+      throw err;
+    }
+
+    // Role verification (FR-EHR-01): Only assigned doctor or ADMIN can edit
+    if (actorRole !== 'ADMIN' && consultation.doctorId !== actorUserId) {
+      db.appendAuditLog({
+        actorUserId: actorUserId || 'ANONYMOUS',
+        actorRole: actorRole || 'NONE',
+        clientIp: clientIp || '127.0.0.1',
+        actionType: 'UNAUTHORIZED_ACCESS_ATTEMPT',
+        targetResource: `CONSULTATION:${consultationId}`,
+        status: 'DENIED',
+        details: `Unauthorized attempt to edit consultation notes: doctor ${actorUserId} is not the author (${consultation.doctorId})`
+      });
+
+      const err = new Error('Access Denied: Only the assigned consulting doctor can edit clinical notes.');
+      err.status = 403;
+      err.type = 'https://hms.hospital.com/errors/forbidden';
+      throw err;
+    }
+
+    // 24-Hour Lockout check (FR-EHR-03 / TC-HMS-05)
+    const createdTimeMs = new Date(consultation.createdAt).getTime();
+    const elapsedMs = (typeof currentTime === 'number' ? currentTime : new Date(currentTime).getTime()) - createdTimeMs;
+
+    if (elapsedMs > LOCKOUT_PERIOD_MS || consultation.lockedAt) {
+      db.appendAuditLog({
+        actorUserId: actorUserId || 'ANONYMOUS',
+        actorRole: actorRole || 'NONE',
+        clientIp: clientIp || '127.0.0.1',
+        actionType: 'EHR_UPDATE_LOCKED_ATTEMPT',
+        targetResource: `CONSULTATION:${consultationId}`,
+        status: 'DENIED',
+        details: `Direct edit rejected: record locked after 24 hours (elapsed: ${(elapsedMs / 3600000).toFixed(1)} hrs)`
+      });
+
+      const err = new Error('403 Forbidden: Direct edits prohibited; submit addendum.');
+      err.status = 403;
+      err.type = 'https://hms.hospital.com/errors/record-locked';
+      throw err;
+    }
+
+    // Validate updates
+    const allowedUpdates = {};
+    if (updates.diagnosis !== undefined) {
+      if (!updates.diagnosis || typeof updates.diagnosis !== 'string' || updates.diagnosis.trim() === '') {
+        const err = new Error('Clinical diagnosis cannot be empty.');
+        err.status = 400;
+        throw err;
+      }
+      allowedUpdates.diagnosis = updates.diagnosis.trim();
+    }
+
+    if (updates.symptoms !== undefined) {
+      allowedUpdates.symptoms = String(updates.symptoms).trim();
+    }
+
+    if (updates.examinationNotes !== undefined) {
+      allowedUpdates.examinationNotes = String(updates.examinationNotes).trim();
+    }
+
+    if (updates.vitals && typeof updates.vitals === 'object') {
+      if (updates.vitals.bloodPressure && !this.isValidBP(updates.vitals.bloodPressure)) {
+        const err = new Error('Blood pressure must be in standard format (e.g. "120/80").');
+        err.status = 400;
+        throw err;
+      }
+      allowedUpdates.vitals = {
+        ...consultation.vitals,
+        ...updates.vitals
+      };
+    }
+
+    const updatedRecord = db.updateConsultation(consultationId, allowedUpdates);
+
+    // Immutable audit logging (SEC-REQ-2.1)
+    db.appendAuditLog({
+      actorUserId,
+      actorRole,
+      clientIp: clientIp || '127.0.0.1',
+      actionType: 'EHR_UPDATE',
+      targetResource: `CONSULTATION:${consultationId}`,
+      status: 'SUCCESS',
+      details: `Consultation notes updated within 24-hour window by ${actorUserId}`
+    });
+
+    return updatedRecord;
+  }
+
+  /**
+   * Append an immutable addendum to clinical notes after 24-hour lock (US-10 / FR-EHR-03)
+   */
+  appendAddendum(consultationId, {
+    note,
+    actorUserId,
+    actorRole,
+    doctorName,
+    clientIp,
+    timestamp = new Date().toISOString()
+  }) {
+    const consultation = db.findConsultationById(consultationId);
+    if (!consultation) {
+      const err = new Error(`Consultation record ${consultationId} not found.`);
+      err.status = 404;
+      err.type = 'https://hms.hospital.com/errors/not-found';
+      throw err;
+    }
+
+    // Role check: Only DOCTOR or ADMIN can add an addendum
+    if (actorRole !== 'DOCTOR' && actorRole !== 'ADMIN') {
+      db.appendAuditLog({
+        actorUserId: actorUserId || 'ANONYMOUS',
+        actorRole: actorRole || 'NONE',
+        clientIp: clientIp || '127.0.0.1',
+        actionType: 'UNAUTHORIZED_ACCESS_ATTEMPT',
+        targetResource: `CONSULTATION:${consultationId}:ADDENDUM`,
+        status: 'DENIED',
+        details: `Role ${actorRole} attempted to append addendum to clinical notes`
+      });
+
+      const err = new Error('Access Denied: Only physicians can append addenda to medical records.');
+      err.status = 403;
+      err.type = 'https://hms.hospital.com/errors/forbidden';
+      throw err;
+    }
+
+    if (!note || typeof note !== 'string' || note.trim() === '') {
+      const err = new Error('Addendum text note is required and cannot be empty.');
+      err.status = 400;
+      err.type = 'https://hms.hospital.com/errors/validation-failed';
+      throw err;
+    }
+
+    const addendum = {
+      addendumId: `ADD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`,
+      note: note.trim(),
+      doctorUserId: actorUserId,
+      doctorName: doctorName || 'Consulting Physician',
+      timestamp: typeof timestamp === 'string' ? timestamp : new Date(timestamp).toISOString()
+    };
+
+    const updatedConsultation = db.addConsultationAddendum(consultationId, addendum);
+
+    // Audit log (SEC-REQ-2.1)
+    db.appendAuditLog({
+      actorUserId,
+      actorRole,
+      clientIp: clientIp || '127.0.0.1',
+      actionType: 'EHR_ADDENDUM',
+      targetResource: `CONSULTATION:${consultationId}`,
+      status: 'SUCCESS',
+      details: `Addendum ${addendum.addendumId} appended by Dr. ${addendum.doctorName} (${actorUserId})`
+    });
+
+    return {
+      consultationId,
+      addendum,
+      consultation: updatedConsultation
     };
   }
 

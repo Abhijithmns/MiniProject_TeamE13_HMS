@@ -125,7 +125,7 @@ class Database {
     return [...this.patients.values()];
   }
 
-  // ─── EHR Consultations Store (US-09 / FR-EHR-01, FR-EHR-02) ───────────────────
+  // ─── EHR Consultations Store (US-09, US-10 / FR-EHR-01, FR-EHR-02, FR-EHR-03) ──
 
   createConsultation(consultationData) {
     const consultation = {
@@ -146,6 +146,7 @@ class Database {
       prescriptions: Array.isArray(consultationData.prescriptions) ? consultationData.prescriptions : [],
       prescriptionHash: consultationData.prescriptionHash || null,
       lockedAt: consultationData.lockedAt || null,
+      addenda: Array.isArray(consultationData.addenda) ? consultationData.addenda : [],
       createdAt: consultationData.createdAt || new Date().toISOString(),
       updatedAt: consultationData.updatedAt || new Date().toISOString()
     };
@@ -155,6 +156,26 @@ class Database {
 
   findConsultationById(consultationId) {
     return this.consultations.get(String(consultationId)) || null;
+  }
+
+  updateConsultation(consultationId, updates) {
+    const consultation = this.findConsultationById(consultationId);
+    if (!consultation) return null;
+    Object.assign(consultation, updates);
+    consultation.updatedAt = updates.updatedAt || new Date().toISOString();
+    this.consultations.set(consultation.consultationId, consultation);
+    return consultation;
+  }
+
+  addConsultationAddendum(consultationId, addendumData) {
+    const consultation = this.findConsultationById(consultationId);
+    if (!consultation) return null;
+    if (!Array.isArray(consultation.addenda)) {
+      consultation.addenda = [];
+    }
+    consultation.addenda.push(Object.freeze({ ...addendumData }));
+    this.consultations.set(consultation.consultationId, consultation);
+    return consultation;
   }
 
   getConsultationsByPatientId(patientId) {

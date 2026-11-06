@@ -22,7 +22,7 @@
       <button class="tab-btn active" data-tab="tab-login">Login & Lockout</button>
       <button class="tab-btn" data-tab="tab-register">Sign Up (Password Policy)</button>
       <button class="tab-btn" data-tab="tab-rbac">Role-Based Portals</button>
-      <button class="tab-btn" data-tab="tab-ehr">Doctor Consultation (US-09)</button>
+      <button class="tab-btn" data-tab="tab-ehr">Doctor Consultation (US-09 & US-10)</button>
       <button class="tab-btn" data-tab="tab-audit">Audit Trail (Admin)</button>
     </nav>
 
@@ -157,7 +157,7 @@
       </div>
     </section>
 
-    <!-- Tab 4: Doctor Consultation (US-09) -->
+    <!-- Tab 4: Doctor Consultation & Lockout (US-09 & US-10) -->
     <section id="tab-ehr" class="tab-content">
       <div class="card">
         <h2>Doctor Records Visit Notes, Vitals & Prescriptions (US-09 / FR-EHR-01, FR-EHR-02)</h2>
@@ -230,6 +230,35 @@
         <div id="ehr-result" class="token-container hidden">
           <h3>Saved Consultation Record (Digital Verification)</h3>
           <pre id="ehr-display"></pre>
+        </div>
+
+        <hr style="margin: 2rem 0; border: 0; border-top: 1px solid #e5e7eb;">
+
+        <h2>Append Medical Addendum (After 24 Hours / US-10)</h2>
+        <p class="description">
+          Clinical notes lock permanently after 24 hours (FR-EHR-03). Direct edits are rejected, and subsequent notes must be submitted as a signed, timestamped addendum.
+        </p>
+
+        <form id="addendum-form">
+          <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem;">
+            <div class="form-group" style="flex:1; min-width:200px;">
+              <label for="addendum-consultation-id">Consultation ID *</label>
+              <input type="text" id="addendum-consultation-id" required placeholder="e.g. CNS-102941">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="addendum-note">Addendum Details *</label>
+            <textarea id="addendum-note" rows="2" required placeholder="e.g. Patient follow-up: Fever fully resolved. No adverse drug reaction observed."></textarea>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-secondary">Append Addendum (FR-EHR-03)</button>
+          </div>
+        </form>
+
+        <div id="addendum-alert" class="alert hidden"></div>
+        <div id="addendum-result" class="token-container hidden">
+          <h3>Addendum Appended</h3>
+          <pre id="addendum-display"></pre>
         </div>
       </div>
     </section>

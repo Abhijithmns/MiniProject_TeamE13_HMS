@@ -6,6 +6,7 @@ const auditRoutes = require('./routes/auditRoutes');
 const patientRoutes = require('./routes/patientRoutes');
 const ehrRoutes = require('./routes/ehrRoutes');
 const appointmentRoutes = require('./routes/appointmentRoutes');
+const billingRoutes = require('./routes/billingRoutes');
 const pharmacyRoutes = require('./routes/pharmacyRoutes');
 
 const app = express();
@@ -24,6 +25,7 @@ app.use('/api/v1/audit', auditRoutes);
 app.use('/api/v1/patients', patientRoutes);
 app.use('/api/v1/ehr', ehrRoutes);
 app.use('/api/v1/appointments', appointmentRoutes);
+app.use('/api/v1/billing', billingRoutes);
 app.use('/api/v1/pharmacy', pharmacyRoutes);
 
 // Health check endpoint

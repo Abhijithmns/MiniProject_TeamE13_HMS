@@ -28,6 +28,10 @@ function setupTabs() {
       if (targetId === 'tab-audit' && currentUser && currentUser.role === 'ADMIN') {
         fetchAuditLogs();
       }
+      if (targetId === 'tab-pharmacy') {
+        fetchPharmacyQueue();
+        fetchPharmacyInventory();
+      }
     });
   });
 }
@@ -850,5 +854,209 @@ async function rescheduleAppointmentUI() {
   } catch (err) {
     alertEl.className = 'alert error';
     alertEl.textContent = err.message;
+  }
+}
+
+// ─── Pharmacy & Medication Inventory Client Logic (US-13 / TC-HMS-07) ──────────
+
+async function fetchPharmacyQueue() {
+  const tbody = document.getElementById('pharmacy-queue-tbody');
+  const alertEl = document.getElementById('pharmacy-queue-alert');
+  if (!tbody) return;
+
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/pharmacy/queue', { headers });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Failed to fetch pharmacy queue');
+    }
+
+    const queue = data.data?.queue || [];
+    if (queue.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center">No prescriptions in dispensary queue.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = queue.map(q => {
+      const rxText = (q.prescriptions || []).map(p => `${escapeHtml(p.name || p.medication)} (${p.quantity || 1} units)`).join(', ');
+      const isDispensed = q.status === 'DISPENSED';
+      const actionBtn = isDispensed
+        ? '<span class="badge badge-success">Dispensed</span>'
+        : `<button class="btn btn-primary btn-sm" onclick="dispenseFromQueue('${escapeHtml(q.queueId)}')">Dispense</button>`;
+
+      return `
+        <tr>
+          <td><code>${escapeHtml(q.queueId)}</code></td>
+          <td>${escapeHtml(q.patientId)}</td>
+          <td>${escapeHtml(q.doctorId || 'Doctor')}</td>
+          <td>${rxText || 'None'}</td>
+          <td><span class="badge ${isDispensed ? 'badge-success' : 'badge-warning'}">${escapeHtml(q.status)}</span></td>
+          <td>${escapeHtml(new Date(q.enqueuedAt).toLocaleString())}</td>
+          <td>${actionBtn}</td>
+        </tr>
+      `;
+    }).join('');
+
+    if (alertEl) alertEl.classList.add('hidden');
+  } catch (err) {
+    if (alertEl) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = `Queue Error: ${err.message}`;
+      alertEl.classList.remove('hidden');
+    }
+  }
+}
+
+async function dispenseFromQueue(queueId) {
+  const alertEl = document.getElementById('pharmacy-queue-alert');
+  if (!confirm(`Confirm dispensing prescription ${queueId}?`)) return;
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/pharmacy/dispense', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ queueId })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Dispensation failed');
+    }
+
+    if (alertEl) {
+      alertEl.className = 'alert success';
+      alertEl.textContent = `Prescription ${queueId} successfully dispensed. Inventory counts decremented.`;
+      alertEl.classList.remove('hidden');
+    }
+
+    fetchPharmacyQueue();
+    fetchPharmacyInventory();
+  } catch (err) {
+    if (alertEl) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = `Dispense Error: ${err.message}`;
+      alertEl.classList.remove('hidden');
+    }
+  }
+}
+
+async function handleDirectDispense(e) {
+  e.preventDefault();
+  const medId = document.getElementById('dispense-med-id').value.trim();
+  const quantity = document.getElementById('dispense-qty').value;
+  const alertEl = document.getElementById('dispense-direct-alert');
+
+  alertEl.className = 'alert info';
+  alertEl.textContent = `Dispensing ${quantity} units of ${medId}...`;
+  alertEl.classList.remove('hidden');
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/pharmacy/dispense', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ medicationId: medId, quantity: parseInt(quantity, 10) })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Dispense failed');
+    }
+
+    const payload = data.data;
+    alertEl.className = 'alert success';
+    let msg = `Successfully dispensed ${payload.dispensedQuantity} units of ${payload.medicationName}. Stock updated from ${payload.previousStock} to ${payload.remainingStock}.`;
+    if (payload.isLowStock) {
+      msg += ` ⚠️ LOW-STOCK ALERT TRIGGERED: Stock (${payload.remainingStock}) is below threshold (${payload.alert ? payload.alert.alertThreshold : 10}).`;
+    }
+    alertEl.textContent = msg;
+
+    fetchPharmacyInventory();
+    fetchPharmacyAlerts();
+  } catch (err) {
+    alertEl.className = 'alert error';
+    alertEl.textContent = err.message;
+  }
+}
+
+async function fetchPharmacyInventory() {
+  const tbody = document.getElementById('pharmacy-inventory-tbody');
+  const alertEl = document.getElementById('pharmacy-inventory-alert');
+  if (!tbody) return;
+
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/pharmacy/inventory', { headers });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Failed to fetch inventory');
+    }
+
+    const inventory = data.data?.inventory || [];
+    tbody.innerHTML = inventory.map(item => {
+      const isLow = item.isLowStock;
+      const statusBadge = isLow
+        ? `<span class="badge badge-danger">LOW STOCK (&lt; ${item.alertThreshold})</span>`
+        : '<span class="badge badge-success">Adequate</span>';
+
+      return `
+        <tr>
+          <td><code>${escapeHtml(item.medicationId)}</code></td>
+          <td><strong>${escapeHtml(item.name)}</strong></td>
+          <td><span style="font-size:1.1em; font-weight:bold; ${isLow ? 'color:#dc3545;' : ''}">${item.stock}</span></td>
+          <td>${item.alertThreshold}</td>
+          <td>${escapeHtml(item.unit || 'units')}</td>
+          <td>${statusBadge}</td>
+          <td>${escapeHtml(item.batchNo || 'N/A')}</td>
+        </tr>
+      `;
+    }).join('');
+
+    if (alertEl) alertEl.classList.add('hidden');
+  } catch (err) {
+    if (alertEl) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = `Inventory Error: ${err.message}`;
+      alertEl.classList.remove('hidden');
+    }
+  }
+}
+
+async function fetchPharmacyAlerts() {
+  const container = document.getElementById('pharmacy-alerts-container');
+  const display = document.getElementById('pharmacy-alerts-display');
+  if (!container || !display) return;
+
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/pharmacy/alerts', { headers });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Failed to fetch alerts');
+    }
+
+    const alerts = data.data?.alerts || [];
+    container.classList.remove('hidden');
+    display.textContent = alerts.length > 0
+      ? JSON.stringify(alerts, null, 2)
+      : 'No active low-stock alerts. All inventory levels are above threshold.';
+  } catch (err) {
+    container.classList.remove('hidden');
+    display.textContent = `Error: ${err.message}`;
   }
 }

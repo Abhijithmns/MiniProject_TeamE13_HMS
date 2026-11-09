@@ -139,7 +139,7 @@ class EHRService {
       patientId: String(patientId),
       doctorId: actorUserId,
       doctorName: doctorName || 'Consulting Doctor',
-      symptoms: symptoms ? symptoms.trim() : '',
+      symptoms: Array.isArray(symptoms) ? symptoms.join(', ') : (symptoms ? String(symptoms).trim() : ''),
       examinationNotes: examinationNotes ? examinationNotes.trim() : '',
       vitals: {
         bloodPressure: vitals?.bloodPressure?.trim() || null,
@@ -152,6 +152,7 @@ class EHRService {
         medicationId: p.medicationId || `MED-${(idx + 1).toString().padStart(3, '0')}`,
         name: p.name.trim(),
         dosage: p.dosage.trim(),
+        quantity: p.quantity !== undefined ? parseInt(p.quantity, 10) : 1,
         frequency: p.frequency ? p.frequency.trim() : 'Once daily',
         durationDays: p.durationDays ? Number(p.durationDays) : 5,
         instructions: p.instructions ? p.instructions.trim() : 'Take after meals'

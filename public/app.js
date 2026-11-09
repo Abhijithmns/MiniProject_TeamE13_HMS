@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupTabs();
   setupPasswordChecklist();
   setupForms();
+  setupBookingTab();
   updateSessionUI();
 });
 
@@ -448,4 +449,406 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// ─── Appointment Booking & Slot Holding Logic (FR-APPT-01 & FR-APPT-02) ────────
+let currentHeldSlotId = null;
+let holdTimerInterval = null;
+
+function setupBookingTab() {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const whDate = document.getElementById('wh-date');
+  const bookDate = document.getElementById('book-date-select');
+  if (whDate) whDate.value = todayStr;
+  if (bookDate) bookDate.value = todayStr;
+
+  // Working Hours Form Submission
+  const whForm = document.getElementById('working-hours-form');
+  if (whForm) {
+    whForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const doctorId = document.getElementById('wh-doctor-id').value;
+      const date = document.getElementById('wh-date').value;
+      const startTime = document.getElementById('wh-start-time').value;
+      const endTime = document.getElementById('wh-end-time').value;
+      const slotDurationMinutes = document.getElementById('wh-duration').value;
+      const alertEl = document.getElementById('wh-alert');
+
+      alertEl.className = 'alert info';
+      alertEl.textContent = 'Configuring doctor working hours and generating 15-minute consultation slots...';
+      alertEl.classList.remove('hidden');
+
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+        const res = await fetch('/api/v1/appointments/working-hours', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ doctorId, date, startTime, endTime, slotDurationMinutes })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.detail || data.message || 'Failed to configure working hours');
+        }
+
+        alertEl.className = 'alert success';
+        alertEl.textContent = `Working hours successfully set for ${data.data.doctorName} on ${data.data.date}. Generated ${data.data.totalSlots} consultation slots (${data.data.slotDurationMinutes} min intervals).`;
+        loadAvailableSlots();
+      } catch (err) {
+        alertEl.className = 'alert error';
+        alertEl.textContent = err.message;
+      }
+    });
+  }
+
+  // Confirm Booking Form Submission
+  const confirmForm = document.getElementById('confirm-booking-form');
+  if (confirmForm) {
+    confirmForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentHeldSlotId) {
+        alert('Please select and hold a slot first.');
+        return;
+      }
+
+      const patientId = document.getElementById('book-patient-id').value.trim();
+      const patientName = document.getElementById('book-patient-name').value.trim();
+      const reasonForVisit = document.getElementById('book-reason').value.trim();
+      const alertEl = document.getElementById('booking-alert');
+      const confirmCard = document.getElementById('confirmation-card');
+      const confirmDisplay = document.getElementById('confirmation-display');
+
+      alertEl.className = 'alert info';
+      alertEl.textContent = 'Confirming appointment booking and dispatching confirmation...';
+      alertEl.classList.remove('hidden');
+
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+        const res = await fetch('/api/v1/appointments', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            slotId: currentHeldSlotId,
+            patientId,
+            patientName,
+            reasonForVisit
+          })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.detail || data.message || 'Booking failed');
+        }
+
+        clearInterval(holdTimerInterval);
+        currentHeldSlotId = null;
+        document.getElementById('selected-slot-card').classList.add('hidden');
+
+        alertEl.className = 'alert success';
+        alertEl.textContent = `Appointment ${data.appointmentId} successfully confirmed! Booking confirmation sent to patient via SMS and Email (FR-APPT-04).`;
+
+        confirmCard.classList.remove('hidden');
+        confirmDisplay.textContent = JSON.stringify(data.data, null, 2);
+
+        loadAvailableSlots();
+      } catch (err) {
+        alertEl.className = 'alert error';
+        alertEl.textContent = err.message;
+      }
+    });
+  }
+}
+
+async function loadAvailableSlots() {
+  const doctorId = document.getElementById('book-doctor-select').value;
+  const date = document.getElementById('book-date-select').value;
+  const container = document.getElementById('slots-container');
+  const alertEl = document.getElementById('booking-alert');
+
+  container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem;">Loading available slots...</p>';
+  alertEl.classList.add('hidden');
+
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch(`/api/v1/appointments/slots?doctorId=${encodeURIComponent(doctorId)}&date=${encodeURIComponent(date)}`, {
+      headers
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Could not fetch available slots');
+    }
+
+    const slots = data.data.slots || [];
+    if (slots.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem;">No open consultation slots available for this doctor and date.</p>';
+      return;
+    }
+
+    container.innerHTML = slots.map(s => {
+      const isSelected = s.slotId === currentHeldSlotId;
+      const isHeld = s.status === 'HELD';
+      let itemClass = 'slot-item';
+      if (isSelected) itemClass += ' selected';
+      else if (isHeld) itemClass += ' held';
+
+      return `
+        <div class="${itemClass}" onclick="selectAndHoldSlot('${escapeHtml(s.slotId)}', '${escapeHtml(s.startTime)}', '${escapeHtml(s.endTime)}')">
+          <div class="slot-time">${escapeHtml(s.startTime)} - ${escapeHtml(s.endTime)}</div>
+          <span class="slot-status-label">${isSelected ? 'HELD BY YOU' : (isHeld ? 'TEMPORARILY HELD' : 'AVAILABLE')}</span>
+        </div>
+      `;
+    }).join('');
+
+  } catch (err) {
+    container.innerHTML = `<p style="color:var(--danger); font-size:0.85rem;">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function selectAndHoldSlot(slotId, startTime, endTime) {
+  const alertEl = document.getElementById('booking-alert');
+  const slotCard = document.getElementById('selected-slot-card');
+  const titleEl = document.getElementById('held-slot-title');
+
+  alertEl.classList.add('hidden');
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const patientId = currentUser?.id || document.getElementById('book-patient-id')?.value || 'PAT-01';
+
+    const res = await fetch(`/api/v1/appointments/slots/${encodeURIComponent(slotId)}/hold`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ patientId, holdDurationMinutes: 5 })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Slot cannot be held');
+    }
+
+    currentHeldSlotId = slotId;
+    titleEl.textContent = `Selected Slot: ${startTime} - ${endTime} (ID: ${slotId})`;
+    slotCard.classList.remove('hidden');
+
+    startHoldCountdown(data.data.holdExpiresAt);
+    loadAvailableSlots();
+  } catch (err) {
+    alertEl.className = 'alert error';
+    alertEl.textContent = err.message;
+    alertEl.classList.remove('hidden');
+  }
+}
+
+function startHoldCountdown(expiresAt) {
+  clearInterval(holdTimerInterval);
+  const badge = document.getElementById('held-timer-badge');
+
+  function update() {
+    const diff = expiresAt - Date.now();
+    if (diff <= 0) {
+      clearInterval(holdTimerInterval);
+      badge.textContent = 'Hold Expired. Slot returned to public pool.';
+      currentHeldSlotId = null;
+      document.getElementById('selected-slot-card').classList.add('hidden');
+      loadAvailableSlots();
+      return;
+    }
+    const mins = Math.floor(diff / 60000).toString().padStart(2, '0');
+    const secs = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+    badge.textContent = `Slot Held: ${mins}:${secs} remaining`;
+  }
+
+  update();
+  holdTimerInterval = setInterval(update, 1000);
+}
+
+async function releaseCurrentHold() {
+  if (!currentHeldSlotId) return;
+  clearInterval(holdTimerInterval);
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    await fetch(`/api/v1/appointments/slots/${encodeURIComponent(currentHeldSlotId)}/release`, {
+      method: 'POST',
+      headers
+    });
+  } catch (err) {
+    console.error('Failed to release hold:', err);
+  }
+
+  currentHeldSlotId = null;
+  document.getElementById('selected-slot-card').classList.add('hidden');
+  loadAvailableSlots();
+}
+
+// Live Concurrent Double-Booking Race Condition Simulation (TC-HMS-04)
+async function runDoubleBookingTest() {
+  const resultGrid = document.getElementById('concurrency-result-grid');
+  const t1Status = document.getElementById('thread-1-status');
+  const t1Output = document.getElementById('thread-1-output');
+  const t2Status = document.getElementById('thread-2-status');
+  const t2Output = document.getElementById('thread-2-output');
+
+  resultGrid.classList.remove('hidden');
+  t1Status.textContent = 'Executing simultaneous request...';
+  t1Status.style.color = 'var(--text-secondary)';
+  t1Output.textContent = 'Sending POST /api/v1/appointments (Slot: SLOT-1004)...';
+
+  t2Status.textContent = 'Executing simultaneous request...';
+  t2Status.style.color = 'var(--text-secondary)';
+  t2Output.textContent = 'Sending POST /api/v1/appointments (Slot: SLOT-1004)...';
+
+  const testSlotId = 'SLOT-1004'; // TC-HMS-04 slot
+
+  const headersA = { 'Content-Type': 'application/json' };
+  const headersB = { 'Content-Type': 'application/json' };
+  if (currentToken) {
+    headersA['Authorization'] = `Bearer ${currentToken}`;
+    headersB['Authorization'] = `Bearer ${currentToken}`;
+  }
+
+  const reqA = fetch('/api/v1/appointments', {
+    method: 'POST',
+    headers: headersA,
+    body: JSON.stringify({
+      slotId: testSlotId,
+      patientId: 'PAT-01',
+      patientName: 'Alice Patient',
+      reasonForVisit: 'Concurrent Booking Test A'
+    })
+  }).then(async r => ({ status: r.status, body: await r.json() }));
+
+  const reqB = fetch('/api/v1/appointments', {
+    method: 'POST',
+    headers: headersB,
+    body: JSON.stringify({
+      slotId: testSlotId,
+      patientId: 'PAT-02',
+      patientName: 'Bob Patient',
+      reasonForVisit: 'Concurrent Booking Test B'
+    })
+  }).then(async r => ({ status: r.status, body: await r.json() }));
+
+  const [resA, resB] = await Promise.all([reqA, reqB]);
+
+  // Display Thread 1
+  if (resA.status === 201) {
+    t1Status.textContent = '201 Created (SUCCESS: Reserved Slot)';
+    t1Status.style.color = '#065f46';
+  } else {
+    t1Status.textContent = `${resA.status} Conflict (REJECTED: Slot Already Booked)`;
+    t1Status.style.color = '#991b1b';
+  }
+  t1Output.textContent = JSON.stringify(resA.body, null, 2);
+
+  // Display Thread 2
+  if (resB.status === 201) {
+    t2Status.textContent = '201 Created (SUCCESS: Reserved Slot)';
+    t2Status.style.color = '#065f46';
+  } else {
+    t2Status.textContent = `${resB.status} Conflict (REJECTED: Slot Already Booked)`;
+    t2Status.style.color = '#991b1b';
+  }
+  t2Output.textContent = JSON.stringify(resB.body, null, 2);
+
+  loadAvailableSlots();
+}
+
+// ─── Appointment Cancellation & Rescheduling (US-08 / FR-APPT-03) ─────────────
+async function cancelAppointmentUI() {
+  const apptId = document.getElementById('cr-appointment-id').value.trim();
+  const reason = document.getElementById('cr-reason').value.trim();
+  const alertEl = document.getElementById('cr-alert');
+  const resultCard = document.getElementById('cr-result');
+  const display = document.getElementById('cr-display');
+
+  if (!apptId) {
+    alert('Please enter an Appointment ID.');
+    return;
+  }
+
+  alertEl.className = 'alert info';
+  alertEl.textContent = `Processing cancellation for appointment ${apptId}...`;
+  alertEl.classList.remove('hidden');
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch(`/api/v1/appointments/${encodeURIComponent(apptId)}/cancel`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ reason })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Cancellation failed');
+    }
+
+    alertEl.className = 'alert success';
+    alertEl.textContent = `Appointment ${apptId} successfully CANCELLED. Slot ${data.data.releasedSlotId} immediately released back to the available pool.`;
+    resultCard.classList.remove('hidden');
+    display.textContent = JSON.stringify(data.data, null, 2);
+
+    loadAvailableSlots();
+  } catch (err) {
+    alertEl.className = 'alert error';
+    alertEl.textContent = err.message;
+  }
+}
+
+async function rescheduleAppointmentUI() {
+  const apptId = document.getElementById('cr-appointment-id').value.trim();
+  const newSlotId = document.getElementById('cr-new-slot-id').value.trim();
+  const reason = document.getElementById('cr-reason').value.trim();
+  const alertEl = document.getElementById('cr-alert');
+  const resultCard = document.getElementById('cr-result');
+  const display = document.getElementById('cr-display');
+
+  if (!apptId || !newSlotId) {
+    alert('Please enter both Appointment ID and New Slot ID for rescheduling.');
+    return;
+  }
+
+  alertEl.className = 'alert info';
+  alertEl.textContent = `Rescheduling appointment ${apptId} to slot ${newSlotId}...`;
+  alertEl.classList.remove('hidden');
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch(`/api/v1/appointments/${encodeURIComponent(apptId)}/reschedule`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ newSlotId, reason })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Rescheduling failed');
+    }
+
+    alertEl.className = 'alert success';
+    alertEl.textContent = `Appointment ${apptId} successfully RESCHEDULED to slot ${data.data.newSlotId} (${data.data.newSlotTime}). Old slot ${data.data.releasedSlotId} released.`;
+    resultCard.classList.remove('hidden');
+    display.textContent = JSON.stringify(data.data, null, 2);
+
+    loadAvailableSlots();
+  } catch (err) {
+    alertEl.className = 'alert error';
+    alertEl.textContent = err.message;
+  }
 }

@@ -22,6 +22,7 @@
       <button class="tab-btn active" data-tab="tab-login">Login & Lockout</button>
       <button class="tab-btn" data-tab="tab-register">Sign Up (Password Policy)</button>
       <button class="tab-btn" data-tab="tab-rbac">Role-Based Portals</button>
+      <button class="tab-btn" data-tab="tab-booking">Appointment Booking (FR-APPT-01 & FR-APPT-02)</button>
       <button class="tab-btn" data-tab="tab-ehr">Doctor Consultation (US-09 & US-10)</button>
       <button class="tab-btn" data-tab="tab-audit">Audit Trail (Admin)</button>
     </nav>
@@ -154,6 +155,196 @@
           <h4 id="rbac-result-title">Response</h4>
           <pre id="rbac-result-json"></pre>
         </div>
+      </div>
+    </section>
+
+    <!-- Tab 3.5: Book Appointments Without Double-Booking (US-07 / FR-APPT-02 / TC-HMS-04) -->
+    <section id="tab-booking" class="tab-content">
+      <div class="card">
+        <h2>Book Appointments Without Double-Booking (US-07 / FR-APPT-02)</h2>
+        <p class="description">
+          Demonstrates doctor working hours configuration with 15-minute slot intervals (FR-APPT-01), temporary slot locking with 5-minute checkout TTL (FR-APPT-02), atomic double-booking prevention under concurrent requests (TC-HMS-04), and automated booking confirmations (FR-APPT-04).
+        </p>
+
+        <!-- Doctor Working Hours Configuration -->
+        <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-bottom: 2rem;">
+          <h3 style="margin-bottom: 0.5rem;">1. Doctor Sets Working Hours (FR-APPT-01)</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Restricted to Doctors & Admins. Configures consultation working hours and automatically partitions time into 15-minute consultation slot intervals.
+          </p>
+
+          <form id="working-hours-form">
+            <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem;">
+              <div class="form-group" style="flex:1; min-width:180px;">
+                <label for="wh-doctor-id">Doctor</label>
+                <select id="wh-doctor-id">
+                  <option value="USR-DOC-01">Dr. Sarah Smith (USR-DOC-01)</option>
+                  <option value="DOC-401">Dr. Gregory House (DOC-401)</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex:1; min-width:180px;">
+                <label for="wh-date">Schedule Date *</label>
+                <input type="date" id="wh-date" required>
+              </div>
+              <div class="form-group" style="flex:1; min-width:130px;">
+                <label for="wh-start-time">Start Time *</label>
+                <input type="time" id="wh-start-time" value="09:00" required>
+              </div>
+              <div class="form-group" style="flex:1; min-width:130px;">
+                <label for="wh-end-time">End Time *</label>
+                <input type="time" id="wh-end-time" value="12:00" required>
+              </div>
+              <div class="form-group" style="flex:1; min-width:130px;">
+                <label for="wh-duration">Slot Interval</label>
+                <select id="wh-duration">
+                  <option value="15" selected>15 Minutes (Standard)</option>
+                  <option value="30">30 Minutes</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Configure Working Hours & Generate Slots</button>
+            </div>
+          </form>
+
+          <div id="wh-alert" class="alert hidden"></div>
+        </div>
+
+        <!-- Patient Slot Booking & Hold -->
+        <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-bottom: 2rem;">
+          <h3 style="margin-bottom: 0.5rem;">2. Patient Slot Selection, Temporary Hold & Confirmation (FR-APPT-02)</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Shows ONLY currently available slots. Selecting a slot locks it for 5 minutes during checkout. Confirming dispatches confirmation via SMS and Email.
+          </p>
+
+          <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; align-items:flex-end;">
+            <div class="form-group" style="flex:1; min-width:200px;">
+              <label for="book-doctor-select">Select Doctor</label>
+              <select id="book-doctor-select">
+                <option value="USR-DOC-01">Dr. Sarah Smith (USR-DOC-01)</option>
+                <option value="DOC-401">Dr. Gregory House (DOC-401)</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1; min-width:180px;">
+              <label for="book-date-select">Select Date</label>
+              <input type="date" id="book-date-select">
+            </div>
+            <div class="form-group" style="margin-bottom:0.5rem;">
+              <button type="button" class="btn btn-secondary" onclick="loadAvailableSlots()">Search Available Slots</button>
+            </div>
+          </div>
+
+          <!-- Slots Container -->
+          <div id="slots-wrapper" style="margin-top: 1rem;">
+            <h4 style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:0.5rem;">Currently Available Slots:</h4>
+            <div id="slots-container" class="slot-grid">
+              <p style="color:var(--text-muted); font-size:0.85rem;">Click "Search Available Slots" to view open slots.</p>
+            </div>
+          </div>
+
+          <!-- Hold Banner & Booking Form -->
+          <div id="selected-slot-card" class="token-container hidden" style="margin-top:1.5rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+              <div>
+                <h4 id="held-slot-title" style="margin-bottom:0.25rem;">Slot Selected:</h4>
+                <div id="held-timer-badge" class="timer-badge">Slot Held: 05:00 remaining</div>
+              </div>
+              <button type="button" class="btn btn-outline" onclick="releaseCurrentHold()">Release Hold</button>
+            </div>
+
+            <form id="confirm-booking-form" style="margin-top:1rem;">
+              <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem;">
+                <div class="form-group" style="flex:1; min-width:180px;">
+                  <label for="book-patient-id">Patient ID *</label>
+                  <input type="text" id="book-patient-id" value="PAT-01" required>
+                </div>
+                <div class="form-group" style="flex:1; min-width:220px;">
+                  <label for="book-patient-name">Patient Name</label>
+                  <input type="text" id="book-patient-name" value="Alice Patient">
+                </div>
+                <div class="form-group" style="flex:1; min-width:220px;">
+                  <label for="book-reason">Reason for Visit</label>
+                  <input type="text" id="book-reason" value="Annual medical health checkup">
+                </div>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Confirm Appointment Booking (Atomic Lock)</button>
+              </div>
+            </form>
+          </div>
+
+          <div id="booking-alert" class="alert hidden" style="margin-top:1rem;"></div>
+
+          <!-- Confirmation Card -->
+          <div id="confirmation-card" class="token-container hidden" style="margin-top:1rem; border-color:#065f46; background-color:#ecfdf5;">
+            <h3 style="color:#065f46; margin-bottom:0.5rem;">Booking Confirmed (Automated Notifications Dispatched)</h3>
+            <pre id="confirmation-display"></pre>
+          </div>
+        </div>
+
+        <!-- Concurrency Double-Booking Simulator (TC-HMS-04) -->
+        <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem;">
+          <h3 style="margin-bottom: 0.5rem;">3. Double-Booking Prevention Test (TC-HMS-04 / Concurrency Simulation)</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Executes 2 simultaneous booking requests on the EXACT same slot at the same millisecond. Tests race condition isolation: Thread 1 succeeds with 201 Created; Thread 2 is atomically rejected with 409 Conflict ("Slot already booked").
+          </p>
+
+          <div class="form-actions" style="margin-bottom:1rem;">
+            <button type="button" class="btn btn-danger" onclick="runDoubleBookingTest()">Execute Concurrent Double-Booking Race Condition (TC-HMS-04)</button>
+          </div>
+
+          <div id="concurrency-result-grid" class="concurrency-test-grid hidden">
+            <div class="concurrency-card" id="thread-1-card">
+              <h4>Thread 1: Patient A (PAT-01)</h4>
+              <div id="thread-1-status" style="font-weight:700;">Pending...</div>
+              <pre id="thread-1-output" style="margin-top:0.5rem; font-size:0.8rem; background:#fff; padding:0.5rem; border:1px solid #e5e7eb; border-radius:4px; max-height:160px; overflow:auto;"></pre>
+            </div>
+            <div class="concurrency-card" id="thread-2-card">
+              <h4>Thread 2: Patient B (PAT-02)</h4>
+              <div id="thread-2-status" style="font-weight:700;">Pending...</div>
+              <pre id="thread-2-output" style="margin-top:0.5rem; font-size:0.8rem; background:#fff; padding:0.5rem; border:1px solid #e5e7eb; border-radius:4px; max-height:160px; overflow:auto;"></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cancel or Reschedule Appointment (US-08 / FR-APPT-03) -->
+        <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-top: 2rem;">
+          <h3 style="margin-bottom: 0.5rem;">4. Cancel or Reschedule an Appointment (US-08 / FR-APPT-03)</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Enforces the 2-hour policy (FR-APPT-03). Allows cancellation or change up to 2 hours before the scheduled time. Immediately releases the slot back to the public pool and updates patient history status to "Cancelled" or "Rescheduled".
+          </p>
+
+          <form id="cancel-reschedule-form">
+            <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem;">
+              <div class="form-group" style="flex:1; min-width:200px;">
+                <label for="cr-appointment-id">Appointment ID *</label>
+                <input type="text" id="cr-appointment-id" placeholder="e.g. APT-1029" required>
+              </div>
+              <div class="form-group" style="flex:1; min-width:200px;">
+                <label for="cr-new-slot-id">New Slot ID (for Rescheduling only)</label>
+                <input type="text" id="cr-new-slot-id" placeholder="e.g. SLOT-2002">
+              </div>
+              <div class="form-group" style="flex:2; min-width:260px;">
+                <label for="cr-reason">Reason</label>
+                <input type="text" id="cr-reason" placeholder="e.g. Change of personal schedule">
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" class="btn btn-danger" onclick="cancelAppointmentUI()">Cancel Appointment (Release Slot)</button>
+              <button type="button" class="btn btn-secondary" onclick="rescheduleAppointmentUI()">Reschedule to New Slot</button>
+            </div>
+          </form>
+
+          <div id="cr-alert" class="alert hidden" style="margin-top:1rem;"></div>
+          <div id="cr-result" class="token-container hidden" style="margin-top:1rem;">
+            <h3>Updated Appointment Status</h3>
+            <pre id="cr-display"></pre>
+          </div>
+        </div>
+
       </div>
     </section>
 

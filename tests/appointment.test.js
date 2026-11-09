@@ -7,7 +7,7 @@ const authService = require('../src/services/authService');
 const appointmentService = require('../src/services/appointmentService');
 const app = require('../src/app');
 
-describe('Sprint 2: [US-07 / TC-HMS-04] Book Appointments Without Double-Booking (FR-APPT-02)', () => {
+describe('Sprint 2: [US-06 / US-07 / US-08 / TC-HMS-04] Doctor Scheduling, Booking & Cancellation', () => {
   let doctorToken;
   let doctorHouseToken;
   let adminToken;

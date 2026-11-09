@@ -401,7 +401,7 @@ async function fetchAuditLogs() {
   const tbody = document.getElementById('audit-tbody');
 
   alertEl.classList.add('hidden');
-  tbody.innerHTML = '<tr><td colspan="7" class="text-center">Loading immutable audit logs...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" class="text-center">Loading immutable audit logs...</td></tr>';
 
   try {
     const headers = {};
@@ -409,7 +409,15 @@ async function fetchAuditLogs() {
       headers['Authorization'] = `Bearer ${currentToken}`;
     }
 
-    const res = await fetch('/api/v1/audit/logs', { headers });
+    const patientFilter = document.getElementById('audit-filter-patient')?.value.trim();
+    const actionFilter = document.getElementById('audit-filter-action')?.value.trim();
+
+    const queryParams = new URLSearchParams();
+    if (patientFilter) queryParams.set('patientId', patientFilter);
+    if (actionFilter) queryParams.set('actionType', actionFilter);
+
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    const res = await fetch(`/api/v1/audit/logs${queryString}`, { headers });
     const data = await res.json();
 
     if (!res.ok) {
@@ -418,7 +426,7 @@ async function fetchAuditLogs() {
 
     const logs = data.data.logs;
     if (logs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center">No audit records recorded yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center">No audit records found matching criteria.</td></tr>';
       return;
     }
 
@@ -427,6 +435,7 @@ async function fetchAuditLogs() {
         <td><code>${l.timestamp}</code></td>
         <td><strong>${escapeHtml(l.actorUserId)}</strong></td>
         <td>${escapeHtml(l.actorRole)}</td>
+        <td>${l.patientId ? `<code>${escapeHtml(l.patientId)}</code>` : '<span style="color:var(--text-muted);">-</span>'}</td>
         <td><code>${escapeHtml(l.actionType)}</code></td>
         <td>${escapeHtml(l.targetResource)}</td>
         <td><span style="font-weight: 700; color: ${l.status === 'SUCCESS' ? '#065f46' : '#991b1b'};">${escapeHtml(l.status)}</span></td>
@@ -437,6 +446,49 @@ async function fetchAuditLogs() {
   } catch (err) {
     alertEl.className = 'alert error';
     alertEl.textContent = err.message;
+    alertEl.classList.remove('hidden');
+  }
+}
+
+function resetAuditFilters() {
+  const patientInput = document.getElementById('audit-filter-patient');
+  const actionSelect = document.getElementById('audit-filter-action');
+  if (patientInput) patientInput.value = '';
+  if (actionSelect) actionSelect.value = '';
+  fetchAuditLogs();
+}
+
+async function simulateMedicalRecordDownload() {
+  const alertEl = document.getElementById('audit-alert');
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    // Look for an existing consultation ID from the seeded records or fetch one
+    const resList = await fetch('/api/v1/ehr/patients/PAT-1000000001/consultations', { headers });
+    let consultationId = 'CNS-1001';
+    if (resList.ok) {
+      const data = await resList.json();
+      if (data.data?.consultations?.length > 0) {
+        consultationId = data.data.consultations[0].consultationId;
+      }
+    }
+
+    const res = await fetch(`/api/v1/ehr/consultations/${encodeURIComponent(consultationId)}/download`, { headers });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.title || 'Download failed');
+    }
+
+    alertEl.className = 'alert success';
+    alertEl.textContent = `Medical record ${consultationId} downloaded successfully. Logged EHR_DOWNLOAD in immutable audit log.`;
+    alertEl.classList.remove('hidden');
+
+    fetchAuditLogs();
+  } catch (err) {
+    alertEl.className = 'alert error';
+    alertEl.textContent = `Download simulation error: ${err.message}`;
     alertEl.classList.remove('hidden');
   }
 }

@@ -1,7 +1,7 @@
 'use strict';
 
-const crypto = require('crypto');
 const db = require('../db');
+const { createPrescriptionSignature, verifyPrescriptionSignature } = require('./prescriptionSignature');
 
 // 24 hours in milliseconds (US-10 / FR-EHR-03)
 const LOCKOUT_PERIOD_MS = 24 * 60 * 60 * 1000;
@@ -120,23 +120,12 @@ class EHRService {
     const consultationId = `CNS-${Math.floor(100000 + Math.random() * 900000)}`;
     const timestamp = new Date().toISOString();
 
-    // Generate Cryptographic SHA-256 Verification Hash (FR-EHR-04 / SEC-REQ-2.2 / SADS §6.2 autonumber 295)
-    const hashPayload = JSON.stringify({
-      consultationId,
-      appointmentId: appointmentId || null,
-      patientId: String(patientId),
-      doctorId: actorUserId,
-      diagnosis: diagnosis.trim(),
-      prescriptions,
-      createdAt: timestamp
-    });
-    const prescriptionHash = `sha256:${crypto.createHash('sha256').update(hashPayload).digest('hex')}`;
-
     // Create and save consultation record
     const consultation = db.createConsultation({
       consultationId,
       appointmentId: appointmentId || `APT-${Date.now().toString().slice(-4)}`,
       patientId: String(patientId),
+      patientName: patient?.name || '',
       doctorId: actorUserId,
       doctorName: doctorName || 'Consulting Doctor',
       symptoms: symptoms ? symptoms.trim() : '',
@@ -156,11 +145,15 @@ class EHRService {
         durationDays: p.durationDays ? Number(p.durationDays) : 5,
         instructions: p.instructions ? p.instructions.trim() : 'Take after meals'
       })),
-      prescriptionHash,
+      prescriptionHash: null,
       addenda: [],
       createdAt: timestamp,
       updatedAt: timestamp
     });
+
+    // Sign the normalized record so the PDF verification code covers every displayed field.
+    const prescriptionHash = createPrescriptionSignature(consultation);
+    db.updateConsultation(consultationId, { prescriptionHash });
 
     // Automatically queue verified prescriptions to hospital pharmacy queue (FR-PHARM-01 / SADS §6.2)
     if (consultation.prescriptions.length > 0) {
@@ -280,7 +273,12 @@ class EHRService {
       };
     }
 
-    const updatedRecord = db.updateConsultation(consultationId, allowedUpdates);
+    const signedRecord = { ...consultation, ...allowedUpdates };
+    const updatedRecord = db.updateConsultation(consultationId, {
+      ...allowedUpdates,
+      prescriptionHash: createPrescriptionSignature(signedRecord)
+    });
+    db.updatePharmacyQueueSignature(consultationId, updatedRecord.prescriptionHash);
 
     // Immutable audit logging (SEC-REQ-2.1)
     db.appendAuditLog({
@@ -398,6 +396,25 @@ class EHRService {
       throw err;
     }
 
+    if (actorRole === 'PATIENT') {
+      const patient = db.findPatientByAccountUserId(actorUserId);
+      if (!patient || patient.patientId !== consultation.patientId) {
+        db.appendAuditLog({
+          actorUserId: actorUserId || 'ANONYMOUS',
+          actorRole,
+          clientIp: clientIp || '127.0.0.1',
+          actionType: 'IDOR_ACCESS_DENIED',
+          targetResource: `CONSULTATION:${consultationId}`,
+          status: 'DENIED',
+          details: 'Patient attempted to view a consultation outside their linked record'
+        });
+        const err = new Error("Access Denied: You cannot view another patient's medical record.");
+        err.status = 403;
+        err.type = 'https://hms.hospital.com/errors/idor-prohibited';
+        throw err;
+      }
+    }
+
     // Audit view event
     db.appendAuditLog({
       actorUserId: actorUserId || 'ANONYMOUS',
@@ -423,6 +440,16 @@ class EHRService {
       throw err;
     }
 
+    if (actorRole === 'PATIENT') {
+      const patient = db.findPatientByAccountUserId(actorUserId);
+      if (!patient || patient.patientId !== String(patientId)) {
+        const err = new Error("Access Denied: You cannot view another patient's medical records.");
+        err.status = 403;
+        err.type = 'https://hms.hospital.com/errors/idor-prohibited';
+        throw err;
+      }
+    }
+
     const consultations = db.getConsultationsByPatientId(patientId);
 
     db.appendAuditLog({
@@ -436,6 +463,129 @@ class EHRService {
     });
 
     return consultations;
+  }
+
+  /**
+   * List the signed prescriptions belonging to the authenticated patient account.
+   */
+  getPatientPrescriptions({ actorUserId, actorRole, clientIp }) {
+    if (actorRole !== 'PATIENT') {
+      const err = new Error('Only patients can view their prescription dashboard.');
+      err.status = 403;
+      err.type = 'https://hms.hospital.com/errors/forbidden';
+      throw err;
+    }
+
+    const patient = db.findPatientByAccountUserId(actorUserId);
+    const consultations = patient
+      ? db.getConsultationsByPatientId(patient.patientId).filter(c => c.prescriptions.length > 0)
+      : [];
+
+    db.appendAuditLog({
+      actorUserId,
+      actorRole,
+      clientIp: clientIp || '127.0.0.1',
+      actionType: 'EHR_PATIENT_PRESCRIPTIONS_VIEW',
+      targetResource: patient ? `PATIENT_PRESCRIPTIONS:${patient.patientId}` : 'PATIENT_PRESCRIPTIONS:UNLINKED',
+      status: 'SUCCESS',
+      details: `Viewed ${consultations.length} prescription record(s)`
+    });
+
+    return {
+      patientId: patient?.patientId || null,
+      prescriptions: consultations.map(consultation => ({
+        consultationId: consultation.consultationId,
+        issuedAt: consultation.createdAt,
+        doctorName: consultation.doctorName,
+        diagnosis: consultation.diagnosis,
+        medicationCount: consultation.prescriptions.length,
+        verificationCode: consultation.prescriptionHash,
+        viewUrl: `/api/v1/ehr/consultations/${encodeURIComponent(consultation.consultationId)}/prescription`,
+        downloadUrl: `/api/v1/ehr/consultations/${encodeURIComponent(consultation.consultationId)}/prescription?download=true`
+      }))
+    };
+  }
+
+  /**
+   * Return a consultation and patient only to the patient owner, assigned doctor, or an admin.
+   */
+  getPrescriptionForDownload(consultationId, { actorUserId, actorRole, clientIp }) {
+    const consultation = db.findConsultationById(consultationId);
+    if (!consultation) {
+      const err = new Error(`Prescription record ${consultationId} not found.`);
+      err.status = 404;
+      err.type = 'https://hms.hospital.com/errors/not-found';
+      throw err;
+    }
+
+    let authorized = actorRole === 'ADMIN';
+    if (actorRole === 'PATIENT') {
+      const patient = db.findPatientByAccountUserId(actorUserId);
+      authorized = patient?.patientId === consultation.patientId;
+    } else if (actorRole === 'DOCTOR') {
+      authorized = consultation.doctorId === actorUserId;
+    }
+
+    if (!authorized) {
+      db.appendAuditLog({
+        actorUserId: actorUserId || 'ANONYMOUS',
+        actorRole: actorRole || 'NONE',
+        clientIp: clientIp || '127.0.0.1',
+        actionType: 'UNAUTHORIZED_ACCESS_ATTEMPT',
+        targetResource: `PRESCRIPTION:${consultationId}`,
+        status: 'DENIED',
+        details: 'Unauthorized attempt to download or view a digital prescription'
+      });
+      const err = new Error('Access Denied: You cannot view this prescription.');
+      err.status = 403;
+      err.type = 'https://hms.hospital.com/errors/forbidden';
+      throw err;
+    }
+
+    if (!verifyPrescriptionSignature(consultation)) {
+      db.appendAuditLog({
+        actorUserId: actorUserId || 'SYSTEM',
+        actorRole: actorRole || 'NONE',
+        clientIp: clientIp || '127.0.0.1',
+        actionType: 'PRESCRIPTION_SIGNATURE_INVALID',
+        targetResource: `PRESCRIPTION:${consultationId}`,
+        status: 'FAILED',
+        details: 'Prescription integrity check failed before PDF generation'
+      });
+      const err = new Error('Prescription verification failed. This record cannot be rendered as a verified PDF.');
+      err.status = 409;
+      err.type = 'https://hms.hospital.com/errors/prescription-verification-failed';
+      throw err;
+    }
+
+    const patient = db.findPatientById(consultation.patientId);
+    if (!patient) {
+      const err = new Error('Patient record for this prescription was not found.');
+      err.status = 404;
+      err.type = 'https://hms.hospital.com/errors/not-found';
+      throw err;
+    }
+
+    db.appendAuditLog({
+      actorUserId: actorUserId || 'ANONYMOUS',
+      actorRole: actorRole || 'NONE',
+      clientIp: clientIp || '127.0.0.1',
+      actionType: 'EHR_PRESCRIPTION_DOWNLOAD',
+      targetResource: `PRESCRIPTION:${consultationId}`,
+      status: 'SUCCESS',
+      details: 'Verified digital prescription PDF viewed or downloaded'
+    });
+
+    return { consultation, patient };
+  }
+
+  /**
+   * Verify a public code without returning clinical or patient information.
+   */
+  verifyPrescriptionCode(consultationId, verificationCode) {
+    const consultation = db.findConsultationById(consultationId);
+    if (!consultation || !verificationCode) return false;
+    return verifyPrescriptionSignature(consultation, verificationCode);
   }
 }
 

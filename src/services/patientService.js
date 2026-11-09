@@ -74,12 +74,24 @@ class PatientService {
   /**
    * Register a new patient (US-04 / FR-PAT-01, FR-PAT-02).
    */
-  registerPatient({ name, dateOfBirth, gender, phone, bloodGroup, emergencyContact, actorUserId, actorRole, clientIp = '127.0.0.1' }) {
+  registerPatient({ name, dateOfBirth, gender, phone, bloodGroup, emergencyContact, accountUserId, actorUserId, actorRole, clientIp = '127.0.0.1' }) {
     const errors = this.validatePatientInput({ name, dateOfBirth, gender, phone, bloodGroup, emergencyContact });
     if (errors.length > 0) {
       const err = new Error(errors.join('; '));
       err.status = 400;
       err.errors = errors;
+      throw err;
+    }
+
+    const linkedAccount = accountUserId ? db.findUserById(accountUserId) : null;
+    if (accountUserId && (!linkedAccount || linkedAccount.role !== 'PATIENT')) {
+      const err = new Error('The linked account must belong to an existing patient user.');
+      err.status = 400;
+      throw err;
+    }
+    if (accountUserId && db.findPatientByAccountUserId(accountUserId)) {
+      const err = new Error('This patient account is already linked to a patient record.');
+      err.status = 409;
       throw err;
     }
 
@@ -93,7 +105,8 @@ class PatientService {
       gender: gender.toUpperCase(),
       phone: phoneDigits,
       bloodGroup: bloodGroup ? bloodGroup.toUpperCase() : null,
-      emergencyContact: emergencyContact.trim()
+      emergencyContact: emergencyContact.trim(),
+      accountUserId: accountUserId || null
     });
 
     db.appendAuditLog({
@@ -107,6 +120,45 @@ class PatientService {
     });
 
     return patient;
+  }
+
+  linkPatientAccount({ patientId, accountUserId, actorUserId, actorRole, clientIp = '127.0.0.1' }) {
+    const patient = db.findPatientById(patientId);
+    if (!patient) {
+      const err = new Error(`Patient with ID ${patientId} not found`);
+      err.status = 404;
+      throw err;
+    }
+
+    const account = db.findUserById(accountUserId);
+    if (!account || account.role !== 'PATIENT') {
+      const err = new Error('The linked account must belong to an existing patient user.');
+      err.status = 400;
+      throw err;
+    }
+    const currentLink = db.findPatientByAccountUserId(accountUserId);
+    if (currentLink && currentLink.patientId !== String(patientId)) {
+      const err = new Error('This patient account is already linked to a different patient record.');
+      err.status = 409;
+      throw err;
+    }
+    if (patient.accountUserId && patient.accountUserId !== accountUserId) {
+      const err = new Error('This patient record is already linked to a different patient account.');
+      err.status = 409;
+      throw err;
+    }
+
+    const updatedPatient = db.linkPatientAccount(patientId, accountUserId);
+    db.appendAuditLog({
+      actorUserId,
+      actorRole,
+      clientIp,
+      actionType: 'PATIENT_ACCOUNT_LINK',
+      targetResource: `Patient:${patient.patientId}`,
+      status: 'SUCCESS',
+      details: `Patient record linked to user ${accountUserId}`
+    });
+    return updatedPatient;
   }
 
   /**
@@ -150,7 +202,6 @@ class PatientService {
     const qLower = q.toLowerCase();
     const qDigits = q.replace(/\D/g, '');
 
-    const allPatients = db.getAllPatients();
     let results = [];
     let searchedBy = 'name'; // default
 
@@ -166,15 +217,13 @@ class PatientService {
         searchedBy = 'patientId';
       } else {
         // Fall through to phone search — same 10-digit format
-        results = allPatients.filter(p => p.phone === qDigits);
+        results = db.getPatientsByPhone(qDigits);
         searchedBy = 'phone';
       }
     }
     // Partial name match (case-insensitive)
     else {
-      results = allPatients.filter(p =>
-        p.name.toLowerCase().includes(qLower)
-      );
+      results = db.searchPatientsByName(qLower);
       searchedBy = 'name';
     }
 

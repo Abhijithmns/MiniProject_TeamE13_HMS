@@ -7,7 +7,7 @@ const authService = require('../src/services/authService');
 const appointmentService = require('../src/services/appointmentService');
 const app = require('../src/app');
 
-describe('Sprint 2: [US-06 / TC-HMS-04] Doctor Sets Working Hours, Available Slots & Double-Booking Prevention', () => {
+describe('Sprint 2: [US-06 / US-07 / TC-HMS-04] Doctor Working Hours & Double-Booking Prevention', () => {
   let doctorToken;
   let doctorHouseToken;
   let adminToken;

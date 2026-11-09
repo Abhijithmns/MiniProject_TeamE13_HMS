@@ -158,10 +158,10 @@
       </div>
     </section>
 
-    <!-- Tab 3.5: Doctor Working Hours & Appointment Booking (FR-APPT-01 & FR-APPT-02 / TC-HMS-04) -->
+    <!-- Tab 3.5: Doctor Working Hours, Booking & Cancellation (FR-APPT-01, FR-APPT-02, FR-APPT-03) -->
     <section id="tab-booking" class="tab-content">
       <div class="card">
-        <h2>Doctor Availability & Patient Appointment Booking (FR-APPT-01 & FR-APPT-02)</h2>
+        <h2>Doctor Availability, Booking & Cancellation (FR-APPT-01, FR-APPT-02, FR-APPT-03)</h2>
         <p class="description">
           Demonstrates doctor working hours configuration with 15-minute slot intervals (FR-APPT-01), temporary slot locking with 5-minute checkout TTL (FR-APPT-02), atomic double-booking prevention under concurrent requests (TC-HMS-04), and automated booking confirmations (FR-APPT-04).
         </p>
@@ -309,6 +309,41 @@
           </div>
         </div>
 
+        <!-- Cancel or Reschedule Appointment (US-08 / FR-APPT-03) -->
+        <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-top: 2rem;">
+          <h3 style="margin-bottom: 0.5rem;">4. Cancel or Reschedule an Appointment (US-08 / FR-APPT-03)</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Enforces the 2-hour policy (FR-APPT-03). Allows cancellation or change up to 2 hours before the scheduled time. Immediately releases the slot back to the public pool and updates patient history status to "Cancelled" or "Rescheduled".
+          </p>
+
+          <form id="cancel-reschedule-form">
+            <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem;">
+              <div class="form-group" style="flex:1; min-width:200px;">
+                <label for="cr-appointment-id">Appointment ID *</label>
+                <input type="text" id="cr-appointment-id" placeholder="e.g. APT-1029" required>
+              </div>
+              <div class="form-group" style="flex:1; min-width:200px;">
+                <label for="cr-new-slot-id">New Slot ID (for Rescheduling only)</label>
+                <input type="text" id="cr-new-slot-id" placeholder="e.g. SLOT-2002">
+              </div>
+              <div class="form-group" style="flex:2; min-width:260px;">
+                <label for="cr-reason">Reason</label>
+                <input type="text" id="cr-reason" placeholder="e.g. Change of personal schedule">
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" class="btn btn-danger" onclick="cancelAppointmentUI()">Cancel Appointment (Release Slot)</button>
+              <button type="button" class="btn btn-secondary" onclick="rescheduleAppointmentUI()">Reschedule to New Slot</button>
+            </div>
+          </form>
+
+          <div id="cr-alert" class="alert hidden" style="margin-top:1rem;"></div>
+          <div id="cr-result" class="token-container hidden" style="margin-top:1rem;">
+            <h3>Updated Appointment Status</h3>
+            <pre id="cr-display"></pre>
+          </div>
+        </div>
       </div>
     </section>
 

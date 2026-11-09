@@ -609,6 +609,331 @@ class AppointmentService {
   getConfirmationsByPatientId(patientId) {
     return db.getNotificationsByPatientId(patientId);
   }
+
+  /**
+   * Cancel Appointment (US-08 / FR-APPT-03)
+   * Allows cancellation up to 2 hours before the scheduled time.
+   * Immediately releases the canceled slot back to the available pool.
+   * Updates appointment status to "Cancelled" in patient history.
+   * Dispatches automated cancellation notification (FR-APPT-04).
+   */
+  cancelAppointment({
+    appointmentId,
+    reason,
+    currentTime = Date.now(),
+    actorUserId,
+    actorRole,
+    clientIp
+  }) {
+    if (!appointmentId) {
+      const err = new Error('Appointment ID is required');
+      err.status = 400;
+      throw err;
+    }
+
+    const appointment = db.findAppointmentById(appointmentId);
+    if (!appointment) {
+      const err = new Error(`Appointment with ID ${appointmentId} not found`);
+      err.status = 404;
+      err.type = 'https://hms.hospital.com/errors/not-found';
+      err.title = 'Resource Not Found';
+      throw err;
+    }
+
+    // RBAC / IDOR check:
+    // PATIENT can only cancel their own appointment.
+    // RECEPTIONIST, DOCTOR, ADMIN can cancel appointments.
+    if (actorRole === 'PATIENT' && actorUserId && appointment.patientId !== actorUserId) {
+      const err = new Error('Access Denied: You cannot cancel an appointment for another patient');
+      err.status = 403;
+      err.type = 'https://hms.hospital.com/errors/insufficient-privilege';
+      err.title = 'Forbidden';
+      throw err;
+    }
+
+    if (appointment.status === 'CANCELLED') {
+      const err = new Error('Appointment has already been cancelled');
+      err.status = 400;
+      err.type = 'https://hms.hospital.com/errors/already-cancelled';
+      err.title = 'Bad Request';
+      throw err;
+    }
+
+    // 2-Hour Window Rule Check (FR-APPT-03)
+    const slotTimeMs = new Date(appointment.slotTime).getTime();
+    const timeDiffMs = slotTimeMs - currentTime;
+    const twoHoursMs = 2 * 60 * 60 * 1000; // 7,200,000 ms
+
+    if (timeDiffMs < twoHoursMs) {
+      const err = new Error('Appointments cannot be cancelled within 2 hours of the scheduled time.');
+      err.status = 400;
+      err.type = 'https://hms.hospital.com/errors/cancellation-window-expired';
+      err.title = 'Cancellation Window Expired';
+      err.detail = 'Appointments cannot be cancelled within 2 hours of the scheduled time.';
+      throw err;
+    }
+
+    // 1. Update appointment status to "Cancelled" in patient history
+    appointment.status = 'CANCELLED';
+    appointment.cancelledAt = new Date(currentTime).toISOString();
+    appointment.cancelledBy = actorUserId || 'SYSTEM';
+    appointment.cancellationReason = reason || 'Patient requested cancellation';
+    appointment.updatedAt = new Date(currentTime).toISOString();
+
+    if (!appointment.history) appointment.history = [];
+    appointment.history.push({
+      status: 'CANCELLED',
+      timestamp: new Date(currentTime).toISOString(),
+      cancelledBy: actorUserId || 'SYSTEM',
+      reason: appointment.cancellationReason
+    });
+
+    // 2. Immediately release the canceled slot back to the available pool
+    if (appointment.slotId) {
+      const slot = db.findSlotById(appointment.slotId);
+      if (slot) {
+        slot.status = 'AVAILABLE';
+        slot.bookedBy = null;
+        slot.bookedAt = null;
+        slot.heldBy = null;
+        slot.holdExpiresAt = null;
+      }
+      db.slotHolds.delete(appointment.slotId);
+      if (db.slotLocks) {
+        db.slotLocks.delete(`lock:slot:${appointment.doctorId}:${appointment.slotTime}`);
+      }
+    }
+
+    // 3. Automated Cancellation Notification (FR-APPT-04)
+    const notification = db.createNotification({
+      confirmationId: `CNF-CANC-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      appointmentId: appointment.appointmentId,
+      patientId: appointment.patientId,
+      recipientEmail: appointment.patientEmail || `${appointment.patientId.toLowerCase()}@hospital.com`,
+      recipientPhone: appointment.patientPhone || '9876543210',
+      channels: ['EMAIL', 'SMS'],
+      emailBody: `Dear ${appointment.patientName}, your appointment (${appointment.appointmentId}) scheduled for ${appointment.slotTime} has been CANCELLED as requested. The slot has been released back to the hospital pool.`,
+      smsBody: `HMS Alert: Appointment ${appointment.appointmentId} on ${appointment.slotTime} is CANCELLED.`,
+      sentAt: new Date(currentTime).toISOString()
+    });
+
+    // 4. Immutable Audit Log (SEC-REQ-2.1)
+    db.appendAuditLog({
+      actorUserId: actorUserId || appointment.patientId,
+      actorRole: actorRole || 'PATIENT',
+      clientIp: clientIp || '127.0.0.1',
+      actionType: 'APPOINTMENT_CANCELLED',
+      targetResource: `APPOINTMENT:${appointment.appointmentId}`,
+      status: 'SUCCESS',
+      details: `Appointment ${appointment.appointmentId} cancelled at least 2 hours prior to scheduled time. Slot ${appointment.slotId} released.`
+    });
+
+    return {
+      appointmentId: appointment.appointmentId,
+      status: 'CANCELLED',
+      appointment,
+      releasedSlotId: appointment.slotId,
+      notification,
+      message: 'Appointment successfully cancelled. Slot has been immediately released back to the available pool.'
+    };
+  }
+
+  /**
+   * Reschedule Appointment (US-08 / FR-APPT-03)
+   * Allows rescheduling up to 2 hours before the current scheduled time.
+   * Immediately releases the old slot back to the available pool.
+   * Atomically books the new slot.
+   * Updates appointment status to "Rescheduled" in patient history.
+   * Dispatches automated notification (FR-APPT-04).
+   */
+  rescheduleAppointment({
+    appointmentId,
+    newSlotId,
+    newDoctorId,
+    newSlotTime,
+    reason,
+    currentTime = Date.now(),
+    actorUserId,
+    actorRole,
+    clientIp
+  }) {
+    if (!appointmentId) {
+      const err = new Error('Appointment ID is required');
+      err.status = 400;
+      throw err;
+    }
+
+    const appointment = db.findAppointmentById(appointmentId);
+    if (!appointment) {
+      const err = new Error(`Appointment with ID ${appointmentId} not found`);
+      err.status = 404;
+      err.type = 'https://hms.hospital.com/errors/not-found';
+      err.title = 'Resource Not Found';
+      throw err;
+    }
+
+    // RBAC / IDOR check
+    if (actorRole === 'PATIENT' && actorUserId && appointment.patientId !== actorUserId) {
+      const err = new Error('Access Denied: You cannot reschedule an appointment for another patient');
+      err.status = 403;
+      err.type = 'https://hms.hospital.com/errors/insufficient-privilege';
+      err.title = 'Forbidden';
+      throw err;
+    }
+
+    if (appointment.status === 'CANCELLED') {
+      const err = new Error('Cannot reschedule an appointment that has already been cancelled');
+      err.status = 400;
+      err.type = 'https://hms.hospital.com/errors/cannot-reschedule-cancelled';
+      err.title = 'Bad Request';
+      throw err;
+    }
+
+    // 2-Hour Window Rule Check on CURRENT appointment (FR-APPT-03)
+    const currentSlotTimeMs = new Date(appointment.slotTime).getTime();
+    const timeDiffMs = currentSlotTimeMs - currentTime;
+    const twoHoursMs = 2 * 60 * 60 * 1000;
+
+    if (timeDiffMs < twoHoursMs) {
+      const err = new Error('Appointments cannot be rescheduled within 2 hours of the scheduled time.');
+      err.status = 400;
+      err.type = 'https://hms.hospital.com/errors/reschedule-window-expired';
+      err.title = 'Rescheduling Window Expired';
+      err.detail = 'Appointments cannot be rescheduled within 2 hours of the scheduled time.';
+      throw err;
+    }
+
+    // Clean expired holds
+    db.cleanExpiredHolds(currentTime);
+
+    // Locate the target new slot
+    let newSlot = null;
+    if (newSlotId) {
+      newSlot = db.findSlotById(newSlotId);
+    }
+    if (!newSlot && newDoctorId && newSlotTime) {
+      newSlot = db.findSlotByDoctorAndTime(newDoctorId, newSlotTime);
+    }
+
+    if (!newSlot) {
+      const err = new Error(
+        newSlotId
+          ? `Target slot ${newSlotId} not found`
+          : `No slot found for Doctor ${newDoctorId} at ${newSlotTime}`
+      );
+      err.status = 404;
+      err.type = 'https://hms.hospital.com/errors/not-found';
+      throw err;
+    }
+
+    // Check if new slot is available
+    if (newSlot.status === 'BOOKED') {
+      const err = new Error('Target slot is already booked. Please choose an open slot.');
+      err.status = 409;
+      err.type = 'https://hms.hospital.com/errors/slot-already-booked';
+      err.title = 'Conflict';
+      throw err;
+    }
+
+    if (newSlot.status === 'HELD' && newSlot.heldBy && newSlot.heldBy !== appointment.patientId) {
+      const hold = db.slotHolds.get(newSlot.slotId);
+      if (hold && hold.holdExpiresAt > currentTime) {
+        const err = new Error('Target slot is currently held by another patient. Please choose another slot.');
+        err.status = 409;
+        err.type = 'https://hms.hospital.com/errors/slot-already-booked';
+        err.title = 'Conflict';
+        throw err;
+      }
+    }
+
+    const oldSlotId = appointment.slotId;
+    const oldSlotTime = appointment.slotTime;
+
+    // 1. Immediately release the old slot back to the available pool
+    if (oldSlotId) {
+      const oldSlot = db.findSlotById(oldSlotId);
+      if (oldSlot) {
+        oldSlot.status = 'AVAILABLE';
+        oldSlot.bookedBy = null;
+        oldSlot.bookedAt = null;
+        oldSlot.heldBy = null;
+        oldSlot.holdExpiresAt = null;
+      }
+      db.slotHolds.delete(oldSlotId);
+      if (db.slotLocks) {
+        db.slotLocks.delete(`lock:slot:${appointment.doctorId}:${oldSlotTime}`);
+      }
+    }
+
+    // 2. Atomically book the new slot
+    newSlot.status = 'BOOKED';
+    newSlot.bookedBy = appointment.patientId;
+    newSlot.bookedAt = new Date(currentTime).toISOString();
+    newSlot.heldBy = null;
+    newSlot.holdExpiresAt = null;
+    db.slotHolds.delete(newSlot.slotId);
+
+    // 3. Update appointment record and history
+    if (!appointment.history) appointment.history = [];
+    appointment.history.push({
+      status: 'RESCHEDULED',
+      previousSlotId: oldSlotId,
+      previousSlotTime: oldSlotTime,
+      rescheduledAt: new Date(currentTime).toISOString(),
+      rescheduledBy: actorUserId || 'SYSTEM',
+      reason: reason || 'Patient requested reschedule'
+    });
+
+    appointment.status = 'RESCHEDULED';
+    appointment.slotId = newSlot.slotId;
+    appointment.slotTime = newSlot.slotTime;
+    appointment.doctorId = newSlot.doctorId;
+    appointment.doctorName = newSlot.doctorName;
+    appointment.rescheduledAt = new Date(currentTime).toISOString();
+    appointment.updatedAt = new Date(currentTime).toISOString();
+
+    // 4. Automated Reschedule Notification (FR-APPT-04)
+    const notification = db.createNotification({
+      confirmationId: `CNF-RESCH-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      appointmentId: appointment.appointmentId,
+      patientId: appointment.patientId,
+      recipientEmail: appointment.patientEmail || `${appointment.patientId.toLowerCase()}@hospital.com`,
+      recipientPhone: appointment.patientPhone || '9876543210',
+      channels: ['EMAIL', 'SMS'],
+      emailBody: `Dear ${appointment.patientName}, your appointment (${appointment.appointmentId}) has been RESCHEDULED to ${newSlot.slotTime} with ${newSlot.doctorName}. Old slot ${oldSlotTime} has been released.`,
+      smsBody: `HMS Alert: Appointment ${appointment.appointmentId} rescheduled to ${newSlot.slotTime} with ${newSlot.doctorName}.`,
+      sentAt: new Date(currentTime).toISOString()
+    });
+
+    // 5. Immutable Audit Log (SEC-REQ-2.1)
+    db.appendAuditLog({
+      actorUserId: actorUserId || appointment.patientId,
+      actorRole: actorRole || 'PATIENT',
+      clientIp: clientIp || '127.0.0.1',
+      actionType: 'APPOINTMENT_RESCHEDULED',
+      targetResource: `APPOINTMENT:${appointment.appointmentId}`,
+      status: 'SUCCESS',
+      details: `Appointment ${appointment.appointmentId} rescheduled from ${oldSlotTime} to ${newSlot.slotTime}. Old slot ${oldSlotId} released back to public pool.`
+    });
+
+    return {
+      appointmentId: appointment.appointmentId,
+      status: 'RESCHEDULED',
+      appointment,
+      releasedSlotId: oldSlotId,
+      newSlotId: newSlot.slotId,
+      newSlotTime: newSlot.slotTime,
+      notification,
+      message: 'Appointment successfully rescheduled. Previous slot has been immediately released back to available pool.'
+    };
+  }
+
+  /**
+   * Retrieve appointments for a patient (history)
+   */
+  getPatientAppointments(patientId) {
+    return db.getAppointmentsByPatientId(patientId);
+  }
 }
 
 const appointmentService = new AppointmentService();

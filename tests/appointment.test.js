@@ -7,7 +7,7 @@ const authService = require('../src/services/authService');
 const appointmentService = require('../src/services/appointmentService');
 const app = require('../src/app');
 
-describe('Sprint 2: [US-06 / US-07 / TC-HMS-04] Doctor Working Hours & Double-Booking Prevention', () => {
+describe('Sprint 2: [US-06 / US-07 / US-08 / TC-HMS-04] Doctor Scheduling, Booking & Cancellation', () => {
   let doctorToken;
   let doctorHouseToken;
   let adminToken;
@@ -566,6 +566,262 @@ describe('Sprint 2: [US-06 / US-07 / TC-HMS-04] Doctor Working Hours & Double-Bo
         res2.body.detail.includes('Slot already booked'),
         `Detail must contain "Slot already booked", got: ${res2.body.detail}`
       );
+    });
+  });
+
+  // ─── 7. Cancel or Reschedule an Appointment (US-08 / FR-APPT-03) ──────────────
+  describe('Cancel or Reschedule an Appointment (US-08 / FR-APPT-03)', () => {
+    let bookedAppointment;
+    const appointmentSlotTime = '2026-10-05 10:00:00';
+
+    beforeEach(() => {
+      // Seed & book an appointment for testing
+      bookedAppointment = appointmentService.bookAppointment({
+        slotId: 'SLOT-1004',
+        patientId: 'PAT-01',
+        patientName: 'Alice Patient',
+        reasonForVisit: 'Follow-up consultation',
+        actorUserId: 'PAT-01',
+        actorRole: 'PATIENT'
+      });
+    });
+
+    test('should allow cancellation at least 2 hours before the scheduled time', () => {
+      // Scheduled time: 2026-10-05 10:00:00
+      // Current simulated time: 2026-10-05 07:00:00 (3 hours before -> valid)
+      const simulatedTime = new Date('2026-10-05 07:00:00').getTime();
+
+      const cancelRes = appointmentService.cancelAppointment({
+        appointmentId: bookedAppointment.appointmentId,
+        reason: 'Conflict with personal schedule',
+        currentTime: simulatedTime,
+        actorUserId: 'PAT-01',
+        actorRole: 'PATIENT'
+      });
+
+      assert.strictEqual(cancelRes.status, 'CANCELLED');
+      assert.strictEqual(cancelRes.appointment.status, 'CANCELLED');
+      assert.strictEqual(cancelRes.releasedSlotId, 'SLOT-1004');
+
+      // Verify slot is immediately released back to available pool (Acceptance Criteria 2)
+      const slot = db.findSlotById('SLOT-1004');
+      assert.strictEqual(slot.status, 'AVAILABLE');
+      assert.strictEqual(slot.bookedBy, null);
+
+      // Verify slot appears in available slots search
+      const available = appointmentService.getAvailableSlots({
+        doctorId: 'DOC-401',
+        date: '2026-10-05',
+        currentTime: simulatedTime
+      });
+      assert.strictEqual(available.count, 1);
+      assert.strictEqual(available.slots[0].slotId, 'SLOT-1004');
+
+      // Verify appointment status updated in patient history (Acceptance Criteria 3)
+      const patientAppointments = appointmentService.getPatientAppointments('PAT-01');
+      const found = patientAppointments.find(a => a.appointmentId === bookedAppointment.appointmentId);
+      assert.strictEqual(found.status, 'CANCELLED');
+      assert.strictEqual(found.history[0].status, 'CANCELLED');
+    });
+
+    test('should reject cancellation within 2 hours of scheduled time with HTTP 400', () => {
+      // Current simulated time: 2026-10-05 08:30:00 (1.5 hours before -> invalid)
+      const simulatedTime = new Date('2026-10-05 08:30:00').getTime();
+
+      assert.throws(
+        () => {
+          appointmentService.cancelAppointment({
+            appointmentId: bookedAppointment.appointmentId,
+            currentTime: simulatedTime,
+            actorUserId: 'PAT-01',
+            actorRole: 'PATIENT'
+          });
+        },
+        err => err.status === 400 && err.message.includes('within 2 hours')
+      );
+
+      // Verify slot remains booked
+      const slot = db.findSlotById('SLOT-1004');
+      assert.strictEqual(slot.status, 'BOOKED');
+    });
+
+    test('should allow staff member (RECEPTIONIST) to cancel appointment', () => {
+      const simulatedTime = new Date('2026-10-05 06:00:00').getTime();
+
+      const cancelRes = appointmentService.cancelAppointment({
+        appointmentId: bookedAppointment.appointmentId,
+        reason: 'Cancelled by desk staff upon phone call',
+        currentTime: simulatedTime,
+        actorUserId: 'USR-REC-01',
+        actorRole: 'RECEPTIONIST'
+      });
+
+      assert.strictEqual(cancelRes.status, 'CANCELLED');
+      assert.strictEqual(cancelRes.appointment.status, 'CANCELLED');
+    });
+
+    test('should reject cancellation by unauthorized patient (IDOR check) with 403', () => {
+      const simulatedTime = new Date('2026-10-05 06:00:00').getTime();
+
+      // Patient B tries to cancel Patient A's appointment
+      assert.throws(
+        () => {
+          appointmentService.cancelAppointment({
+            appointmentId: bookedAppointment.appointmentId,
+            currentTime: simulatedTime,
+            actorUserId: 'PAT-02',
+            actorRole: 'PATIENT'
+          });
+        },
+        err => err.status === 403
+      );
+    });
+
+    test('should allow rescheduling up to 2 hours before scheduled time and release old slot', () => {
+      // Create a second slot for Dr. House to reschedule into
+      const newSlot = db.createSlot({
+        slotId: 'SLOT-1005',
+        doctorId: 'DOC-401',
+        doctorName: 'Dr. Gregory House',
+        date: '2026-10-05',
+        startTime: '11:00',
+        endTime: '11:15',
+        slotTime: '2026-10-05 11:00:00',
+        status: 'AVAILABLE'
+      });
+
+      // Reschedule at 3 hours prior
+      const simulatedTime = new Date('2026-10-05 07:00:00').getTime();
+
+      const reschedRes = appointmentService.rescheduleAppointment({
+        appointmentId: bookedAppointment.appointmentId,
+        newSlotId: 'SLOT-1005',
+        reason: 'Shifted consultation to 11 AM',
+        currentTime: simulatedTime,
+        actorUserId: 'PAT-01',
+        actorRole: 'PATIENT'
+      });
+
+      assert.strictEqual(reschedRes.status, 'RESCHEDULED');
+      assert.strictEqual(reschedRes.releasedSlotId, 'SLOT-1004');
+      assert.strictEqual(reschedRes.newSlotId, 'SLOT-1005');
+
+      // 1. Immediately releases old slot back to available pool (Acceptance Criteria 2)
+      const oldSlot = db.findSlotById('SLOT-1004');
+      assert.strictEqual(oldSlot.status, 'AVAILABLE');
+      assert.strictEqual(oldSlot.bookedBy, null);
+
+      // 2. New slot is booked
+      const targetSlot = db.findSlotById('SLOT-1005');
+      assert.strictEqual(targetSlot.status, 'BOOKED');
+      assert.strictEqual(targetSlot.bookedBy, 'PAT-01');
+
+      // 3. Updates appointment status to "Rescheduled" in patient history (Acceptance Criteria 3)
+      const patientAppointments = appointmentService.getPatientAppointments('PAT-01');
+      const found = patientAppointments.find(a => a.appointmentId === bookedAppointment.appointmentId);
+      assert.strictEqual(found.status, 'RESCHEDULED');
+      assert.strictEqual(found.slotId, 'SLOT-1005');
+      assert.strictEqual(found.history[0].status, 'RESCHEDULED');
+      assert.strictEqual(found.history[0].previousSlotId, 'SLOT-1004');
+    });
+
+    test('should reject rescheduling within 2 hours of scheduled time with 400', () => {
+      // 1 hour before scheduled time
+      const simulatedTime = new Date('2026-10-05 09:00:00').getTime();
+
+      assert.throws(
+        () => {
+          appointmentService.rescheduleAppointment({
+            appointmentId: bookedAppointment.appointmentId,
+            newSlotId: 'SLOT-1005',
+            currentTime: simulatedTime,
+            actorUserId: 'PAT-01',
+            actorRole: 'PATIENT'
+          });
+        },
+        err => err.status === 400 && err.message.includes('within 2 hours')
+      );
+    });
+
+    test('should reject rescheduling to a slot that is already booked with 409', () => {
+      const simulatedTime = new Date('2026-10-05 06:00:00').getTime();
+
+      // Create an already booked slot
+      db.createSlot({
+        slotId: 'SLOT-1006',
+        doctorId: 'DOC-401',
+        doctorName: 'Dr. Gregory House',
+        date: '2026-10-05',
+        startTime: '11:15',
+        endTime: '11:30',
+        slotTime: '2026-10-05 11:15:00',
+        status: 'BOOKED',
+        bookedBy: 'PAT-02'
+      });
+
+      assert.throws(
+        () => {
+          appointmentService.rescheduleAppointment({
+            appointmentId: bookedAppointment.appointmentId,
+            newSlotId: 'SLOT-1006',
+            currentTime: simulatedTime,
+            actorUserId: 'PAT-01',
+            actorRole: 'PATIENT'
+          });
+        },
+        err => err.status === 409 && err.message.includes('already booked')
+      );
+    });
+
+    test('PUT /:id/cancel HTTP route should cancel appointment and release slot', async () => {
+      const res = await makeRequest(`/api/v1/appointments/${bookedAppointment.appointmentId}/cancel`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${patientAToken}`
+        },
+        body: JSON.stringify({
+          reason: 'Need to reschedule next week',
+          simulatedCurrentTime: '2026-10-05 07:00:00'
+        })
+      });
+
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.status, 'success');
+      assert.strictEqual(res.body.data.status, 'CANCELLED');
+      assert.strictEqual(res.body.data.releasedSlotId, 'SLOT-1004');
+    });
+
+    test('PUT /:id/reschedule HTTP route should reschedule and return updated status', async () => {
+      db.createSlot({
+        slotId: 'SLOT-1007',
+        doctorId: 'DOC-401',
+        doctorName: 'Dr. Gregory House',
+        date: '2026-10-05',
+        startTime: '12:00',
+        endTime: '12:15',
+        slotTime: '2026-10-05 12:00:00',
+        status: 'AVAILABLE'
+      });
+
+      const res = await makeRequest(`/api/v1/appointments/${bookedAppointment.appointmentId}/reschedule`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${patientAToken}`
+        },
+        body: JSON.stringify({
+          newSlotId: 'SLOT-1007',
+          reason: 'Moved to afternoon',
+          simulatedCurrentTime: '2026-10-05 07:00:00'
+        })
+      });
+
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.status, 'success');
+      assert.strictEqual(res.body.data.status, 'RESCHEDULED');
+      assert.strictEqual(res.body.data.releasedSlotId, 'SLOT-1004');
+      assert.strictEqual(res.body.data.newSlotId, 'SLOT-1007');
     });
   });
 });

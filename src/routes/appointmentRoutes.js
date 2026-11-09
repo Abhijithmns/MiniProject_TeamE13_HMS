@@ -314,4 +314,138 @@ router.get(
   }
 );
 
+/**
+ * PUT /api/v1/appointments/:id/cancel
+ * Cancel an appointment at least 2 hours before the scheduled time (US-08 / FR-APPT-03)
+ * Immediately releases the canceled slot back to the available pool.
+ * Updates appointment status to "Cancelled" in patient history.
+ */
+router.put(
+  '/:id/cancel',
+  authenticateToken,
+  (req, res) => {
+    try {
+      const appointmentId = req.params.id;
+      const { reason, simulatedCurrentTime } = req.body;
+      const clientIp = req.ip || req.connection?.remoteAddress;
+
+      const currentTime = simulatedCurrentTime
+        ? new Date(simulatedCurrentTime).getTime()
+        : Date.now();
+
+      const result = appointmentService.cancelAppointment({
+        appointmentId,
+        reason,
+        currentTime,
+        actorUserId: req.user.id,
+        actorRole: req.user.role,
+        clientIp
+      });
+
+      return res.status(200).json({
+        status: 'success',
+        message: result.message,
+        data: result
+      });
+    } catch (error) {
+      const status = error.status || 400;
+      return res.status(status).json({
+        type: error.type || 'https://hms.hospital.com/errors/appointment-cancellation-failed',
+        title: error.title || (status === 403 ? 'Access Forbidden' : 'Cancellation Error'),
+        status,
+        detail: error.detail || error.message,
+        message: error.message
+      });
+    }
+  }
+);
+
+/**
+ * PUT /api/v1/appointments/:id/reschedule
+ * Reschedule an appointment up to 2 hours before scheduled time (US-08 / FR-APPT-03)
+ * Releases previous slot immediately and books new slot.
+ * Updates appointment status to "Rescheduled" in patient history.
+ */
+router.put(
+  '/:id/reschedule',
+  authenticateToken,
+  (req, res) => {
+    try {
+      const appointmentId = req.params.id;
+      const { newSlotId, newDoctorId, newSlotTime, reason, simulatedCurrentTime } = req.body;
+      const clientIp = req.ip || req.connection?.remoteAddress;
+
+      const currentTime = simulatedCurrentTime
+        ? new Date(simulatedCurrentTime).getTime()
+        : Date.now();
+
+      const result = appointmentService.rescheduleAppointment({
+        appointmentId,
+        newSlotId,
+        newDoctorId,
+        newSlotTime,
+        reason,
+        currentTime,
+        actorUserId: req.user.id,
+        actorRole: req.user.role,
+        clientIp
+      });
+
+      return res.status(200).json({
+        status: 'success',
+        message: result.message,
+        data: result
+      });
+    } catch (error) {
+      const status = error.status || 400;
+      return res.status(status).json({
+        type: error.type || 'https://hms.hospital.com/errors/appointment-rescheduling-failed',
+        title: error.title || (status === 409 ? 'Conflict' : (status === 403 ? 'Access Forbidden' : 'Rescheduling Error')),
+        status,
+        detail: error.detail || error.message,
+        message: error.message
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/appointments/patient/:patientId
+ * Retrieve appointment history for a patient (showing Confirmed, Cancelled, Rescheduled)
+ */
+router.get(
+  '/patient/:patientId',
+  authenticateToken,
+  (req, res) => {
+    try {
+      const patientId = req.params.patientId;
+
+      // IDOR check: Patient can only view their own appointments
+      if (req.user.role === 'PATIENT' && req.user.id !== patientId) {
+        return res.status(403).json({
+          type: 'https://hms.hospital.com/errors/insufficient-privilege',
+          title: 'Forbidden',
+          status: 403,
+          detail: 'Access Denied: You cannot view appointment history for another patient'
+        });
+      }
+
+      const appointments = appointmentService.getPatientAppointments(patientId);
+      return res.status(200).json({
+        status: 'success',
+        count: appointments.length,
+        data: { appointments }
+      });
+    } catch (error) {
+      const status = error.status || 400;
+      return res.status(status).json({
+        type: error.type || 'https://hms.hospital.com/errors/patient-appointments-failed',
+        title: 'Error',
+        status,
+        detail: error.message
+      });
+    }
+  }
+);
+
 module.exports = router;

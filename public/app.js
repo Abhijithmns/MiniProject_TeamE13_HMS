@@ -764,3 +764,91 @@ async function runDoubleBookingTest() {
 
   loadAvailableSlots();
 }
+
+// ─── Appointment Cancellation & Rescheduling (US-08 / FR-APPT-03) ─────────────
+async function cancelAppointmentUI() {
+  const apptId = document.getElementById('cr-appointment-id').value.trim();
+  const reason = document.getElementById('cr-reason').value.trim();
+  const alertEl = document.getElementById('cr-alert');
+  const resultCard = document.getElementById('cr-result');
+  const display = document.getElementById('cr-display');
+
+  if (!apptId) {
+    alert('Please enter an Appointment ID.');
+    return;
+  }
+
+  alertEl.className = 'alert info';
+  alertEl.textContent = `Processing cancellation for appointment ${apptId}...`;
+  alertEl.classList.remove('hidden');
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch(`/api/v1/appointments/${encodeURIComponent(apptId)}/cancel`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ reason })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Cancellation failed');
+    }
+
+    alertEl.className = 'alert success';
+    alertEl.textContent = `Appointment ${apptId} successfully CANCELLED. Slot ${data.data.releasedSlotId} immediately released back to the available pool.`;
+    resultCard.classList.remove('hidden');
+    display.textContent = JSON.stringify(data.data, null, 2);
+
+    loadAvailableSlots();
+  } catch (err) {
+    alertEl.className = 'alert error';
+    alertEl.textContent = err.message;
+  }
+}
+
+async function rescheduleAppointmentUI() {
+  const apptId = document.getElementById('cr-appointment-id').value.trim();
+  const newSlotId = document.getElementById('cr-new-slot-id').value.trim();
+  const reason = document.getElementById('cr-reason').value.trim();
+  const alertEl = document.getElementById('cr-alert');
+  const resultCard = document.getElementById('cr-result');
+  const display = document.getElementById('cr-display');
+
+  if (!apptId || !newSlotId) {
+    alert('Please enter both Appointment ID and New Slot ID for rescheduling.');
+    return;
+  }
+
+  alertEl.className = 'alert info';
+  alertEl.textContent = `Rescheduling appointment ${apptId} to slot ${newSlotId}...`;
+  alertEl.classList.remove('hidden');
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch(`/api/v1/appointments/${encodeURIComponent(apptId)}/reschedule`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ newSlotId, reason })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Rescheduling failed');
+    }
+
+    alertEl.className = 'alert success';
+    alertEl.textContent = `Appointment ${apptId} successfully RESCHEDULED to slot ${data.data.newSlotId} (${data.data.newSlotTime}). Old slot ${data.data.releasedSlotId} released.`;
+    resultCard.classList.remove('hidden');
+    display.textContent = JSON.stringify(data.data, null, 2);
+
+    loadAvailableSlots();
+  } catch (err) {
+    alertEl.className = 'alert error';
+    alertEl.textContent = err.message;
+  }
+}

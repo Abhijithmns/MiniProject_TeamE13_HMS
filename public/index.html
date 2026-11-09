@@ -459,9 +459,45 @@
         <div class="card-header-flex">
           <div>
             <h2>Immutable Audit Trail (US-14 / SEC-REQ-2.1)</h2>
-            <p class="description">Every authentication attempt, lockout event, and RBAC rejection is recorded in an append-only log store.</p>
+            <p class="description">
+              Records user ID, date & time, patient ID, and action taken for all medical record access, authentication events, and authorization checks (SEC-REQ-2.1). Logs are strictly append-only and cannot be altered or deleted.
+            </p>
           </div>
-          <button class="btn btn-outline" onclick="fetchAuditLogs()">Refresh Audit Trail</button>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button class="btn btn-outline" onclick="fetchAuditLogs()">Refresh Audit Trail</button>
+            <button class="btn btn-secondary" onclick="simulateMedicalRecordDownload()">Simulate Record Download</button>
+          </div>
+        </div>
+
+        <!-- Security Review Filter Controls (US-14 / Acceptance Criteria 3) -->
+        <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1rem; margin-bottom: 1.25rem;">
+          <h3 style="margin-bottom: 0.5rem; font-size: 0.95rem;">Security Review Log Filters</h3>
+          <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+            <div class="form-group" style="flex:1; min-width:180px; margin-bottom:0;">
+              <label for="audit-filter-patient">Filter by Patient ID</label>
+              <input type="text" id="audit-filter-patient" placeholder="e.g. PAT-1000000001">
+            </div>
+            <div class="form-group" style="flex:1; min-width:200px; margin-bottom:0;">
+              <label for="audit-filter-action">Filter by Action Type</label>
+              <select id="audit-filter-action">
+                <option value="">All Action Types</option>
+                <option value="EHR_CREATE">EHR_CREATE (Create Clinical Note)</option>
+                <option value="EHR_VIEW">EHR_VIEW (View Clinical Note)</option>
+                <option value="EHR_UPDATE">EHR_UPDATE (Update Clinical Note)</option>
+                <option value="EHR_ADDENDUM">EHR_ADDENDUM (Append Addendum)</option>
+                <option value="EHR_DOWNLOAD">EHR_DOWNLOAD (Download Record)</option>
+                <option value="EHR_PATIENT_HISTORY_VIEW">EHR_PATIENT_HISTORY_VIEW (Patient History)</option>
+                <option value="UNAUTHORIZED_ACCESS_ATTEMPT">UNAUTHORIZED_ACCESS_ATTEMPT (Access Denied)</option>
+                <option value="RBAC_ACCESS_DENIED">RBAC_ACCESS_DENIED (RBAC Violation)</option>
+                <option value="AUTH_LOGIN_SUCCESS">AUTH_LOGIN_SUCCESS (Login Success)</option>
+                <option value="ACCOUNT_LOCKED">ACCOUNT_LOCKED (Account Lockout)</option>
+              </select>
+            </div>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn btn-primary" onclick="fetchAuditLogs()">Filter Logs</button>
+              <button class="btn btn-outline" onclick="resetAuditFilters()">Clear</button>
+            </div>
+          </div>
         </div>
 
         <div id="audit-table-wrapper" class="table-responsive">
@@ -471,6 +507,7 @@
                 <th>Timestamp (UTC)</th>
                 <th>Actor User</th>
                 <th>Role</th>
+                <th>Patient ID</th>
                 <th>Action Type</th>
                 <th>Target Resource</th>
                 <th>Status</th>
@@ -479,7 +516,7 @@
             </thead>
             <tbody id="audit-tbody">
               <tr>
-                <td colspan="7" class="text-center">Click Refresh to load audit records (Admin credentials required).</td>
+                <td colspan="8" class="text-center">Click Refresh to load audit records (Admin credentials required).</td>
               </tr>
             </tbody>
           </table>

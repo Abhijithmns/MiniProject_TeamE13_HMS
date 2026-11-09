@@ -429,6 +429,7 @@ class Database {
       timestamp: new Date().toISOString(),
       actorUserId: entry.actorUserId || 'ANONYMOUS',
       actorRole: entry.actorRole || 'NONE',
+      patientId: entry.patientId || null,
       clientIp: entry.clientIp || '127.0.0.1',
       actionType: entry.actionType,
       targetResource: entry.targetResource || 'SYSTEM',
@@ -440,9 +441,24 @@ class Database {
     return record;
   }
 
-  getAuditLogs() {
+  getAuditLogs(filters = {}) {
+    let logs = [...this.auditLogs];
+
+    if (filters.patientId) {
+      logs = logs.filter(l => l.patientId === filters.patientId || (l.targetResource && l.targetResource.includes(filters.patientId)));
+    }
+    if (filters.actionType) {
+      logs = logs.filter(l => l.actionType === filters.actionType);
+    }
+    if (filters.actorUserId) {
+      logs = logs.filter(l => l.actorUserId === filters.actorUserId);
+    }
+    if (filters.status) {
+      logs = logs.filter(l => l.status === filters.status);
+    }
+
     // Return copy of audit logs sorted newest first
-    return [...this.auditLogs].reverse();
+    return logs.reverse();
   }
 
   reset() {

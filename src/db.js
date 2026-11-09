@@ -14,6 +14,8 @@ class Database {
     this.invoices = new Map(); // keyed by invoiceNumber (INV-2026-XXXX) (FR-BILL-01, FR-BILL-03)
     this.payments = []; // payment records and receipts (FR-BILL-02)
     this.pharmacyQueue = []; // live queue of prescriptions for dispensary (FR-PHARM-01)
+    this.pharmacyInventory = new Map(); // medication stock inventory (FR-PHARM-02, TC-HMS-07)
+    this.pharmacyAlerts = []; // administrative low-stock alerts (FR-PHARM-03, TC-HMS-07)
     this.auditLogs = [];
     this.seedDefaults();
   }
@@ -65,7 +67,7 @@ class Database {
       },
       {
         id: 'USR-PHARM-01',
-        name: 'Hospital Pharmacist',
+        name: 'Alex Pharmacist',
         email: 'pharmacist@hospital.com',
         passwordHash: defaultPasswordHash,
         role: 'PHARMACIST',
@@ -142,6 +144,58 @@ class Database {
         slotTime: `${today} ${s.time}:00`,
         status: 'AVAILABLE'
       });
+    }
+
+    // Seed TC-HMS-07 pre-condition: Medication "Paracetamol 500mg" (MED-012) has stock = 12 units; minimum alert threshold = 10 units.
+    const defaultMedications = [
+      {
+        medicationId: 'MED-012',
+        name: 'Paracetamol 500mg',
+        category: 'Analgesic / Antipyretic',
+        stock: 12,
+        unit: 'tablets',
+        alertThreshold: 10,
+        unitPrice: 5.0,
+        batchNo: 'BATCH-PCM-2026',
+        expiryDate: '2028-12-31'
+      },
+      {
+        medicationId: 'MED-001',
+        name: 'Amoxicillin 500mg',
+        category: 'Antibiotic',
+        stock: 50,
+        unit: 'capsules',
+        alertThreshold: 15,
+        unitPrice: 12.0,
+        batchNo: 'BATCH-AMX-2026',
+        expiryDate: '2027-06-30'
+      },
+      {
+        medicationId: 'MED-005',
+        name: 'Ibuprofen 400mg',
+        category: 'NSAID',
+        stock: 25,
+        unit: 'tablets',
+        alertThreshold: 10,
+        unitPrice: 8.0,
+        batchNo: 'BATCH-IBU-2026',
+        expiryDate: '2027-09-30'
+      },
+      {
+        medicationId: 'MED-008',
+        name: 'Cetirizine 10mg',
+        category: 'Antihistamine',
+        stock: 8,
+        unit: 'tablets',
+        alertThreshold: 10,
+        unitPrice: 4.5,
+        batchNo: 'BATCH-CET-2026',
+        expiryDate: '2028-03-31'
+      }
+    ];
+
+    for (const med of defaultMedications) {
+      this.pharmacyInventory.set(med.medicationId, { ...med });
     }
   }
 
@@ -291,8 +345,96 @@ class Database {
     return queueItem;
   }
 
-  getPharmacyQueue() {
-    return [...this.pharmacyQueue];
+  getPharmacyQueue(filter = {}) {
+    let queue = [...this.pharmacyQueue];
+    if (filter.status) {
+      queue = queue.filter(q => q.status === filter.status);
+    }
+    return queue;
+  }
+
+  getPharmacyQueueItem(queueId) {
+    return this.pharmacyQueue.find(q => q.queueId === queueId) || null;
+  }
+
+  updatePharmacyQueueItem(queueId, updates) {
+    const item = this.pharmacyQueue.find(q => q.queueId === queueId);
+    if (!item) return null;
+    Object.assign(item, updates, { updatedAt: new Date().toISOString() });
+    return item;
+  }
+
+  getAllInventory() {
+    return [...this.pharmacyInventory.values()];
+  }
+
+  getInventoryItem(idOrName) {
+    if (!idOrName) return null;
+    const search = String(idOrName).trim().toLowerCase();
+    // Exact medicationId or name match
+    for (const [id, item] of this.pharmacyInventory.entries()) {
+      if (id.toLowerCase() === search || item.name.toLowerCase() === search) {
+        return item;
+      }
+    }
+    // Partial substring match (e.g. "Paracetamol" inside "Paracetamol 500mg")
+    for (const item of this.pharmacyInventory.values()) {
+      if (item.name.toLowerCase().includes(search) || search.includes(item.name.toLowerCase())) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  createOrUpdateInventoryItem(itemData) {
+    const medicationId = itemData.medicationId || `MED-${Date.now()}`;
+    const existing = this.pharmacyInventory.get(medicationId) || {};
+    const item = {
+      ...existing,
+      ...itemData,
+      medicationId,
+      updatedAt: new Date().toISOString()
+    };
+    this.pharmacyInventory.set(medicationId, item);
+    return item;
+  }
+
+  decrementInventoryStock(medicationId, quantity) {
+    const item = this.pharmacyInventory.get(medicationId);
+    if (!item) return null;
+    const previousStock = item.stock;
+    const qty = parseInt(quantity, 10);
+    if (item.stock < qty) {
+      return { success: false, reason: 'INSUFFICIENT_STOCK', item, previousStock };
+    }
+    item.stock -= qty;
+    item.updatedAt = new Date().toISOString();
+    return {
+      success: true,
+      item,
+      previousStock,
+      newStock: item.stock,
+      isLowStock: item.stock < (item.alertThreshold !== undefined ? item.alertThreshold : 10)
+    };
+  }
+
+  createLowStockAlert(alertData) {
+    const alert = {
+      alertId: `ALT-STK-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      medicationId: alertData.medicationId,
+      medicationName: alertData.medicationName,
+      currentStock: alertData.currentStock,
+      alertThreshold: alertData.alertThreshold || 10,
+      severity: alertData.currentStock === 0 ? 'CRITICAL' : 'WARNING',
+      status: 'ACTIVE',
+      triggeredAt: new Date().toISOString()
+    };
+    this.pharmacyAlerts.push(Object.freeze(alert));
+    return alert;
+  }
+
+  getLowStockAlerts() {
+    return [...this.pharmacyAlerts].reverse();
   }
 
   // ─── Slot & Schedule Store (FR-APPT-01, FR-APPT-02) ──────────────────────────
@@ -512,6 +654,7 @@ class Database {
       timestamp: new Date().toISOString(),
       actorUserId: entry.actorUserId || 'ANONYMOUS',
       actorRole: entry.actorRole || 'NONE',
+      patientId: entry.patientId || null,
       clientIp: entry.clientIp || '127.0.0.1',
       actionType: entry.actionType,
       targetResource: entry.targetResource || 'SYSTEM',
@@ -523,9 +666,24 @@ class Database {
     return record;
   }
 
-  getAuditLogs() {
+  getAuditLogs(filters = {}) {
+    let logs = [...this.auditLogs];
+
+    if (filters.patientId) {
+      logs = logs.filter(l => l.patientId === filters.patientId || (l.targetResource && l.targetResource.includes(filters.patientId)));
+    }
+    if (filters.actionType) {
+      logs = logs.filter(l => l.actionType === filters.actionType);
+    }
+    if (filters.actorUserId) {
+      logs = logs.filter(l => l.actorUserId === filters.actorUserId);
+    }
+    if (filters.status) {
+      logs = logs.filter(l => l.status === filters.status);
+    }
+
     // Return copy of audit logs sorted newest first
-    return [...this.auditLogs].reverse();
+    return logs.reverse();
   }
 
   reset() {
@@ -533,6 +691,8 @@ class Database {
     this.patients.clear();
     this.consultations.clear();
     this.pharmacyQueue = [];
+    this.pharmacyInventory.clear();
+    this.pharmacyAlerts = [];
     this.auditLogs = [];
     this.slots.clear();
     this.appointments.clear();

@@ -38,6 +38,7 @@ class EHRService {
       db.appendAuditLog({
         actorUserId: actorUserId || 'ANONYMOUS',
         actorRole: actorRole || 'NONE',
+        patientId: patientId || null,
         clientIp: clientIp || '127.0.0.1',
         actionType: 'UNAUTHORIZED_ACCESS_ATTEMPT',
         targetResource: 'EHR_CONSULTATION',
@@ -139,7 +140,7 @@ class EHRService {
       patientId: String(patientId),
       doctorId: actorUserId,
       doctorName: doctorName || 'Consulting Doctor',
-      symptoms: symptoms ? symptoms.trim() : '',
+      symptoms: Array.isArray(symptoms) ? symptoms.join(', ') : (symptoms ? String(symptoms).trim() : ''),
       examinationNotes: examinationNotes ? examinationNotes.trim() : '',
       vitals: {
         bloodPressure: vitals?.bloodPressure?.trim() || null,
@@ -152,6 +153,7 @@ class EHRService {
         medicationId: p.medicationId || `MED-${(idx + 1).toString().padStart(3, '0')}`,
         name: p.name.trim(),
         dosage: p.dosage.trim(),
+        quantity: p.quantity !== undefined ? parseInt(p.quantity, 10) : 1,
         frequency: p.frequency ? p.frequency.trim() : 'Once daily',
         durationDays: p.durationDays ? Number(p.durationDays) : 5,
         instructions: p.instructions ? p.instructions.trim() : 'Take after meals'
@@ -177,6 +179,7 @@ class EHRService {
     db.appendAuditLog({
       actorUserId,
       actorRole,
+      patientId,
       clientIp: clientIp || '127.0.0.1',
       actionType: 'EHR_CREATE',
       targetResource: `CONSULTATION:${consultationId}`,
@@ -215,6 +218,7 @@ class EHRService {
       db.appendAuditLog({
         actorUserId: actorUserId || 'ANONYMOUS',
         actorRole: actorRole || 'NONE',
+        patientId: consultation.patientId,
         clientIp: clientIp || '127.0.0.1',
         actionType: 'UNAUTHORIZED_ACCESS_ATTEMPT',
         targetResource: `CONSULTATION:${consultationId}`,
@@ -236,6 +240,7 @@ class EHRService {
       db.appendAuditLog({
         actorUserId: actorUserId || 'ANONYMOUS',
         actorRole: actorRole || 'NONE',
+        patientId: consultation.patientId,
         clientIp: clientIp || '127.0.0.1',
         actionType: 'EHR_UPDATE_LOCKED_ATTEMPT',
         targetResource: `CONSULTATION:${consultationId}`,
@@ -286,6 +291,7 @@ class EHRService {
     db.appendAuditLog({
       actorUserId,
       actorRole,
+      patientId: consultation.patientId,
       clientIp: clientIp || '127.0.0.1',
       actionType: 'EHR_UPDATE',
       targetResource: `CONSULTATION:${consultationId}`,
@@ -320,6 +326,7 @@ class EHRService {
       db.appendAuditLog({
         actorUserId: actorUserId || 'ANONYMOUS',
         actorRole: actorRole || 'NONE',
+        patientId: consultation.patientId,
         clientIp: clientIp || '127.0.0.1',
         actionType: 'UNAUTHORIZED_ACCESS_ATTEMPT',
         targetResource: `CONSULTATION:${consultationId}:ADDENDUM`,
@@ -354,6 +361,7 @@ class EHRService {
     db.appendAuditLog({
       actorUserId,
       actorRole,
+      patientId: consultation.patientId,
       clientIp: clientIp || '127.0.0.1',
       actionType: 'EHR_ADDENDUM',
       targetResource: `CONSULTATION:${consultationId}`,
@@ -385,6 +393,7 @@ class EHRService {
       db.appendAuditLog({
         actorUserId: actorUserId || 'ANONYMOUS',
         actorRole,
+        patientId: consultation.patientId,
         clientIp: clientIp || '127.0.0.1',
         actionType: 'UNAUTHORIZED_ACCESS_ATTEMPT',
         targetResource: `CONSULTATION:${consultationId}`,
@@ -402,6 +411,7 @@ class EHRService {
     db.appendAuditLog({
       actorUserId: actorUserId || 'ANONYMOUS',
       actorRole: actorRole || 'NONE',
+      patientId: consultation.patientId,
       clientIp: clientIp || '127.0.0.1',
       actionType: 'EHR_VIEW',
       targetResource: `CONSULTATION:${consultationId}`,
@@ -410,6 +420,66 @@ class EHRService {
     });
 
     return consultation;
+  }
+
+  /**
+   * Download a consultation / medical record (US-14 / FR-EHR-01 / SEC-REQ-2.1)
+   */
+  downloadConsultation(consultationId, { actorUserId, actorRole, clientIp }) {
+    const consultation = db.findConsultationById(consultationId);
+    if (!consultation) {
+      const err = new Error(`Consultation record ${consultationId} not found.`);
+      err.status = 404;
+      err.type = 'https://hms.hospital.com/errors/not-found';
+      throw err;
+    }
+
+    // Boundary check: Receptionist cannot download clinical medical records
+    if (actorRole === 'RECEPTIONIST') {
+      db.appendAuditLog({
+        actorUserId: actorUserId || 'ANONYMOUS',
+        actorRole,
+        patientId: consultation.patientId,
+        clientIp: clientIp || '127.0.0.1',
+        actionType: 'UNAUTHORIZED_ACCESS_ATTEMPT',
+        targetResource: `CONSULTATION:${consultationId}:DOWNLOAD`,
+        status: 'DENIED',
+        details: 'Receptionist attempted to download confidential clinical medical record'
+      });
+
+      const err = new Error('Access Denied: Receptionists are not authorized to download clinical records.');
+      err.status = 403;
+      err.type = 'https://hms.hospital.com/errors/forbidden';
+      throw err;
+    }
+
+    // Audit download event (US-14 / SEC-REQ-2.1)
+    db.appendAuditLog({
+      actorUserId: actorUserId || 'ANONYMOUS',
+      actorRole: actorRole || 'NONE',
+      patientId: consultation.patientId,
+      clientIp: clientIp || '127.0.0.1',
+      actionType: 'EHR_DOWNLOAD',
+      targetResource: `CONSULTATION:${consultationId}`,
+      status: 'SUCCESS',
+      details: `Medical record for patient ${consultation.patientId} downloaded by ${actorRole} (${actorUserId})`
+    });
+
+    return {
+      consultationId: consultation.consultationId,
+      patientId: consultation.patientId,
+      appointmentId: consultation.appointmentId,
+      doctorId: consultation.doctorId,
+      doctorName: consultation.doctorName,
+      createdAt: consultation.createdAt,
+      vitals: consultation.vitals,
+      symptoms: consultation.symptoms,
+      examinationNotes: consultation.examinationNotes,
+      diagnosis: consultation.diagnosis,
+      prescriptions: consultation.prescriptions,
+      prescriptionHash: consultation.prescriptionHash,
+      addenda: consultation.addenda || []
+    };
   }
 
   /**
@@ -428,6 +498,7 @@ class EHRService {
     db.appendAuditLog({
       actorUserId: actorUserId || 'ANONYMOUS',
       actorRole: actorRole || 'NONE',
+      patientId,
       clientIp: clientIp || '127.0.0.1',
       actionType: 'EHR_PATIENT_HISTORY_VIEW',
       targetResource: `PATIENT_EHR:${patientId}`,

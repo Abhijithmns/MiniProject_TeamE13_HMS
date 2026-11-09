@@ -177,7 +177,7 @@ flowchart TD
 | **FR-AUTH-01** | User authentication & password policy | TC-HMS-01 | Unit / Functional | Pending |
 | **FR-AUTH-02** | Account lockout after 5 failures | TC-HMS-02 | Functional / Security | Pending |
 | **FR-PAT-01** | Unique 10-digit MPI generation | TC-HMS-03 | Functional / System | Pending |
-| **FR-APPT-02** | Atomic slot locking & double-booking prevention | TC-HMS-04 | Integration / Concurrency | Pending |
+| **FR-APPT-02** | Atomic slot locking & double-booking prevention | TC-HMS-04 | Integration / Concurrency | Passed |
 | **FR-EHR-01** | Clinical consultation entry & 24h lock | TC-HMS-05 | System / Integrity | Pending |
 | **FR-BILL-01** | Consolidated invoice fee calculation | TC-HMS-06 | Functional / System | Pending |
 | **FR-PHARM-02**| Inventory auto-decrement upon dispensing | TC-HMS-07 | Integration / Database | Pending |

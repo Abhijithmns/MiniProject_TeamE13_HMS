@@ -419,3 +419,95 @@ pre {
   display: flex;
   justify-content: space-between;
 }
+
+/* Slot Selection & Appointment Booking Styles (FR-APPT-01 & FR-APPT-02) */
+.slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.slot-item {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  background-color: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.slot-item:hover:not(.disabled) {
+  border-color: var(--primary);
+  background-color: #f3f4f6;
+}
+
+.slot-item.selected {
+  border-color: var(--primary);
+  background-color: var(--primary);
+  color: #ffffff;
+}
+
+.slot-item.held {
+  border-color: #d97706;
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.slot-item.disabled {
+  background-color: #f3f4f6;
+  color: #9ca3af;
+  border-color: #e5e7eb;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.slot-time {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.slot-status-label {
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+  display: block;
+}
+
+.concurrency-test-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .concurrency-test-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.concurrency-card {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 1rem;
+  background-color: #fafafa;
+}
+
+.concurrency-card h4 {
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.timer-badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  background-color: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+}

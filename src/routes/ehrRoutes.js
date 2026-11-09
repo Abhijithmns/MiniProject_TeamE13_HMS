@@ -201,6 +201,7 @@ router.get('/consultations/:id', authenticateToken, (req, res) => {
 });
 
 /**
+/**
  * GET /api/v1/ehr/consultations/:id/prescription
  * View a verified PDF inline or download it with ?download=true.
  */
@@ -227,6 +228,37 @@ router.get('/consultations/:id/prescription', authenticateToken, async (req, res
     return res.status(status).json({
       type: error.type || 'https://hms.hospital.com/errors/prescription-pdf-failed',
       title: status === 403 ? 'Access Forbidden' : 'Prescription PDF Error',
+      status,
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/v1/ehr/consultations/:id/download
+ * Download clinical record / prescription data and record EHR_DOWNLOAD in audit log (US-14 / SEC-REQ-2.1)
+ */
+router.get('/consultations/:id/download', authenticateToken, (req, res) => {
+  try {
+    const consultationId = req.params.id;
+    const clientIp = req.ip || req.connection?.remoteAddress;
+
+    const data = ehrService.downloadConsultation(consultationId, {
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      clientIp
+    });
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Medical record downloaded and access logged in immutable audit trail.',
+      data
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: error.type || 'https://hms.hospital.com/errors/ehr-download-failed',
+      title: error.status === 403 ? 'Access Forbidden' : 'EHR Download Error',
       status,
       detail: error.message
     });

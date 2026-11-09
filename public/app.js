@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupPasswordChecklist();
   setupForms();
   setupBookingTab();
+  setupBillingTab();
   updateSessionUI();
 });
 
@@ -27,6 +28,10 @@ function setupTabs() {
 
       if (targetId === 'tab-audit' && currentUser && currentUser.role === 'ADMIN') {
         fetchAuditLogs();
+      }
+      if (targetId === 'tab-pharmacy') {
+        fetchPharmacyQueue();
+        fetchPharmacyInventory();
       }
     });
   });
@@ -535,7 +540,7 @@ async function fetchAuditLogs() {
   const tbody = document.getElementById('audit-tbody');
 
   alertEl.classList.add('hidden');
-  tbody.innerHTML = '<tr><td colspan="7" class="text-center">Loading immutable audit logs...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" class="text-center">Loading immutable audit logs...</td></tr>';
 
   try {
     const headers = {};
@@ -543,7 +548,15 @@ async function fetchAuditLogs() {
       headers['Authorization'] = `Bearer ${currentToken}`;
     }
 
-    const res = await fetch('/api/v1/audit/logs', { headers });
+    const patientFilter = document.getElementById('audit-filter-patient')?.value.trim();
+    const actionFilter = document.getElementById('audit-filter-action')?.value.trim();
+
+    const queryParams = new URLSearchParams();
+    if (patientFilter) queryParams.set('patientId', patientFilter);
+    if (actionFilter) queryParams.set('actionType', actionFilter);
+
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    const res = await fetch(`/api/v1/audit/logs${queryString}`, { headers });
     const data = await res.json();
 
     if (!res.ok) {
@@ -552,7 +565,7 @@ async function fetchAuditLogs() {
 
     const logs = data.data.logs;
     if (logs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center">No audit records recorded yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center">No audit records found matching criteria.</td></tr>';
       return;
     }
 
@@ -561,6 +574,7 @@ async function fetchAuditLogs() {
         <td><code>${l.timestamp}</code></td>
         <td><strong>${escapeHtml(l.actorUserId)}</strong></td>
         <td>${escapeHtml(l.actorRole)}</td>
+        <td>${l.patientId ? `<code>${escapeHtml(l.patientId)}</code>` : '<span style="color:var(--text-muted);">-</span>'}</td>
         <td><code>${escapeHtml(l.actionType)}</code></td>
         <td>${escapeHtml(l.targetResource)}</td>
         <td><span style="font-weight: 700; color: ${l.status === 'SUCCESS' ? '#065f46' : '#991b1b'};">${escapeHtml(l.status)}</span></td>
@@ -571,6 +585,49 @@ async function fetchAuditLogs() {
   } catch (err) {
     alertEl.className = 'alert error';
     alertEl.textContent = err.message;
+    alertEl.classList.remove('hidden');
+  }
+}
+
+function resetAuditFilters() {
+  const patientInput = document.getElementById('audit-filter-patient');
+  const actionSelect = document.getElementById('audit-filter-action');
+  if (patientInput) patientInput.value = '';
+  if (actionSelect) actionSelect.value = '';
+  fetchAuditLogs();
+}
+
+async function simulateMedicalRecordDownload() {
+  const alertEl = document.getElementById('audit-alert');
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    // Look for an existing consultation ID from the seeded records or fetch one
+    const resList = await fetch('/api/v1/ehr/patients/PAT-1000000001/consultations', { headers });
+    let consultationId = 'CNS-1001';
+    if (resList.ok) {
+      const data = await resList.json();
+      if (data.data?.consultations?.length > 0) {
+        consultationId = data.data.consultations[0].consultationId;
+      }
+    }
+
+    const res = await fetch(`/api/v1/ehr/consultations/${encodeURIComponent(consultationId)}/download`, { headers });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.title || 'Download failed');
+    }
+
+    alertEl.className = 'alert success';
+    alertEl.textContent = `Medical record ${consultationId} downloaded successfully. Logged EHR_DOWNLOAD in immutable audit log.`;
+    alertEl.classList.remove('hidden');
+
+    fetchAuditLogs();
+  } catch (err) {
+    alertEl.className = 'alert error';
+    alertEl.textContent = `Download simulation error: ${err.message}`;
     alertEl.classList.remove('hidden');
   }
 }
@@ -984,5 +1041,296 @@ async function rescheduleAppointmentUI() {
   } catch (err) {
     alertEl.className = 'alert error';
     alertEl.textContent = err.message;
+  }
+}
+
+// ─── Billing & Payment Processing Logic (US-12 / FR-BILL-01, FR-BILL-02, FR-BILL-03) ──
+function setupBillingTab() {
+  const form = document.getElementById('billing-form');
+  if (!form) return;
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const patientId = document.getElementById('bill-patient-id').value.trim();
+    const consultationFee = parseFloat(document.getElementById('bill-consultation-fee').value) || 0;
+    const labTestFee = parseFloat(document.getElementById('bill-lab-fee').value) || 0;
+    const medicineFee = parseFloat(document.getElementById('bill-medicine-fee').value) || 0;
+    const taxRate = (parseFloat(document.getElementById('bill-tax-rate').value) || 0) / 100;
+    const paymentMethod = document.getElementById('bill-payment-method').value;
+    const amountPaid = parseFloat(document.getElementById('bill-amount-paid').value) || 0;
+
+    const alertEl = document.getElementById('billing-preview-alert');
+    const resultCard = document.getElementById('billing-result-card');
+    const display = document.getElementById('billing-display');
+
+    alertEl.className = 'alert info';
+    alertEl.textContent = 'Calculating bill, applying 5% tax and processing payment...';
+    alertEl.classList.remove('hidden');
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+      const res = await fetch('/api/v1/billing/generate', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          patientId,
+          consultationFee,
+          labTestFee,
+          medicineFee,
+          taxRate,
+          paymentMethod,
+          amountPaid
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || data.message || 'Billing generation failed');
+      }
+
+      alertEl.className = 'alert success';
+      alertEl.textContent = `Invoice ${data.invoiceNumber} generated! Subtotal: $${data.subtotal.toFixed(2)}, Tax: $${data.taxAmount.toFixed(2)}, Total: $${data.totalAmount.toFixed(2)} | Status: ${data.status} (Receipt: ${data.receiptNumber || 'None'})`;
+
+      resultCard.classList.remove('hidden');
+      display.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = err.message;
+    }
+  });
+}
+
+function calculateBillPreview() {
+  const consultationFee = parseFloat(document.getElementById('bill-consultation-fee').value) || 0;
+  const labFee = parseFloat(document.getElementById('bill-lab-fee').value) || 0;
+  const medicineFee = parseFloat(document.getElementById('bill-medicine-fee').value) || 0;
+  const taxRatePercent = parseFloat(document.getElementById('bill-tax-rate').value) || 0;
+
+  const subtotal = consultationFee + labFee + medicineFee;
+  const tax = subtotal * (taxRatePercent / 100);
+  const total = subtotal + tax;
+
+  const alertEl = document.getElementById('billing-preview-alert');
+  alertEl.className = 'alert info';
+  alertEl.textContent = `Pre-computation Preview: Subtotal: $${subtotal.toFixed(2)} | Tax (${taxRatePercent}%): $${tax.toFixed(2)} | Total Due: $${total.toFixed(2)}`;
+  alertEl.classList.remove('hidden');
+}
+
+function loadTCHMS06Demo() {
+  document.getElementById('bill-patient-id').value = 'PAT-01';
+  document.getElementById('bill-consultation-fee').value = '50.00';
+  document.getElementById('bill-lab-fee').value = '30.00';
+  document.getElementById('bill-medicine-fee').value = '0.00';
+  document.getElementById('bill-tax-rate').value = '5';
+  document.getElementById('bill-payment-method').value = 'UPI';
+  document.getElementById('bill-amount-paid').value = '84.00';
+
+  calculateBillPreview();
+}
+
+// ─── Pharmacy & Medication Inventory Client Logic (US-13 / TC-HMS-07) ──────────
+
+async function fetchPharmacyQueue() {
+  const tbody = document.getElementById('pharmacy-queue-tbody');
+  const alertEl = document.getElementById('pharmacy-queue-alert');
+  if (!tbody) return;
+
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/pharmacy/queue', { headers });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Failed to fetch pharmacy queue');
+    }
+
+    const queue = data.data?.queue || [];
+    if (queue.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center">No prescriptions in dispensary queue.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = queue.map(q => {
+      const rxText = (q.prescriptions || []).map(p => `${escapeHtml(p.name || p.medication)} (${p.quantity || 1} units)`).join(', ');
+      const isDispensed = q.status === 'DISPENSED';
+      const actionBtn = isDispensed
+        ? '<span class="badge badge-success">Dispensed</span>'
+        : `<button class="btn btn-primary btn-sm" onclick="dispenseFromQueue('${escapeHtml(q.queueId)}')">Dispense</button>`;
+
+      return `
+        <tr>
+          <td><code>${escapeHtml(q.queueId)}</code></td>
+          <td>${escapeHtml(q.patientId)}</td>
+          <td>${escapeHtml(q.doctorId || 'Doctor')}</td>
+          <td>${rxText || 'None'}</td>
+          <td><span class="badge ${isDispensed ? 'badge-success' : 'badge-warning'}">${escapeHtml(q.status)}</span></td>
+          <td>${escapeHtml(new Date(q.enqueuedAt).toLocaleString())}</td>
+          <td>${actionBtn}</td>
+        </tr>
+      `;
+    }).join('');
+
+    if (alertEl) alertEl.classList.add('hidden');
+  } catch (err) {
+    if (alertEl) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = `Queue Error: ${err.message}`;
+      alertEl.classList.remove('hidden');
+    }
+  }
+}
+
+async function dispenseFromQueue(queueId) {
+  const alertEl = document.getElementById('pharmacy-queue-alert');
+  if (!confirm(`Confirm dispensing prescription ${queueId}?`)) return;
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/pharmacy/dispense', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ queueId })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Dispensation failed');
+    }
+
+    if (alertEl) {
+      alertEl.className = 'alert success';
+      alertEl.textContent = `Prescription ${queueId} successfully dispensed. Inventory counts decremented.`;
+      alertEl.classList.remove('hidden');
+    }
+
+    fetchPharmacyQueue();
+    fetchPharmacyInventory();
+  } catch (err) {
+    if (alertEl) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = `Dispense Error: ${err.message}`;
+      alertEl.classList.remove('hidden');
+    }
+  }
+}
+
+async function handleDirectDispense(e) {
+  e.preventDefault();
+  const medId = document.getElementById('dispense-med-id').value.trim();
+  const quantity = document.getElementById('dispense-qty').value;
+  const alertEl = document.getElementById('dispense-direct-alert');
+
+  alertEl.className = 'alert info';
+  alertEl.textContent = `Dispensing ${quantity} units of ${medId}...`;
+  alertEl.classList.remove('hidden');
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/pharmacy/dispense', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ medicationId: medId, quantity: parseInt(quantity, 10) })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Dispense failed');
+    }
+
+    const payload = data.data;
+    alertEl.className = 'alert success';
+    let msg = `Successfully dispensed ${payload.dispensedQuantity} units of ${payload.medicationName}. Stock updated from ${payload.previousStock} to ${payload.remainingStock}.`;
+    if (payload.isLowStock) {
+      msg += ` [LOW-STOCK ALERT TRIGGERED]: Stock (${payload.remainingStock}) is below threshold (${payload.alert ? payload.alert.alertThreshold : 10}).`;
+    }
+    alertEl.textContent = msg;
+
+    fetchPharmacyInventory();
+    fetchPharmacyAlerts();
+  } catch (err) {
+    alertEl.className = 'alert error';
+    alertEl.textContent = err.message;
+  }
+}
+
+async function fetchPharmacyInventory() {
+  const tbody = document.getElementById('pharmacy-inventory-tbody');
+  const alertEl = document.getElementById('pharmacy-inventory-alert');
+  if (!tbody) return;
+
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/pharmacy/inventory', { headers });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Failed to fetch inventory');
+    }
+
+    const inventory = data.data?.inventory || [];
+    tbody.innerHTML = inventory.map(item => {
+      const isLow = item.isLowStock;
+      const statusBadge = isLow
+        ? `<span class="badge badge-danger">LOW STOCK (&lt; ${item.alertThreshold})</span>`
+        : '<span class="badge badge-success">Adequate</span>';
+
+      return `
+        <tr>
+          <td><code>${escapeHtml(item.medicationId)}</code></td>
+          <td><strong>${escapeHtml(item.name)}</strong></td>
+          <td><span style="font-size:1.1em; font-weight:bold; ${isLow ? 'color:#dc3545;' : ''}">${item.stock}</span></td>
+          <td>${item.alertThreshold}</td>
+          <td>${escapeHtml(item.unit || 'units')}</td>
+          <td>${statusBadge}</td>
+          <td>${escapeHtml(item.batchNo || 'N/A')}</td>
+        </tr>
+      `;
+    }).join('');
+
+    if (alertEl) alertEl.classList.add('hidden');
+  } catch (err) {
+    if (alertEl) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = `Inventory Error: ${err.message}`;
+      alertEl.classList.remove('hidden');
+    }
+  }
+}
+
+async function fetchPharmacyAlerts() {
+  const container = document.getElementById('pharmacy-alerts-container');
+  const display = document.getElementById('pharmacy-alerts-display');
+  if (!container || !display) return;
+
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/pharmacy/alerts', { headers });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Failed to fetch alerts');
+    }
+
+    const alerts = data.data?.alerts || [];
+    container.classList.remove('hidden');
+    display.textContent = alerts.length > 0
+      ? JSON.stringify(alerts, null, 2)
+      : 'No active low-stock alerts. All inventory levels are above threshold.';
+  } catch (err) {
+    container.classList.remove('hidden');
+    display.textContent = `Error: ${err.message}`;
   }
 }

@@ -180,7 +180,7 @@ flowchart TD
 | **FR-APPT-02** | Atomic slot locking & double-booking prevention | TC-HMS-04 | Integration / Concurrency | Passed |
 | **FR-EHR-01** | Clinical consultation entry & 24h lock | TC-HMS-05 | System / Integrity | Pending |
 | **FR-BILL-01** | Consolidated invoice fee calculation | TC-HMS-06 | Functional / System | Pending |
-| **FR-PHARM-02**| Inventory auto-decrement upon dispensing | TC-HMS-07 | Integration / Database | Pending |
+| **FR-PHARM-02**| Inventory auto-decrement upon dispensing | TC-HMS-07 | Integration / Database | Passed |
 | **NFR-PERF-01** | Sub-500ms query latency under 200 users | TC-HMS-08 | Performance / Stress | Pending |
 | **SEC-REQ-1.1** | Role-Based Access Control & IDOR prevention | TC-HMS-09 | Security / Non-Functional | Pending |
 | **SEC-REQ-1.2** | Data at rest (AES-256) & transit (TLS 1.3) | TC-HMS-10 | Security / Non-Functional | Pending |

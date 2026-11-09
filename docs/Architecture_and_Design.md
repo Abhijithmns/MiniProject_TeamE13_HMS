@@ -170,7 +170,7 @@ flowchart TB
 | **Patient Service** | `/api/v1/patients/*` | Manages patient registration, demographic persistence, Master Patient Index (MPI) generation, and patient search indexing. |
 | **Scheduling Engine** | `/api/v1/appointments/*` | Manages doctor rosters, slot generation, appointment reservations, and atomic slot lock acquisition via Redis to prevent double booking. |
 | **EHR & Clinical Service** | `/api/v1/ehr/*` | Captures doctor clinical notes, diagnoses, prescriptions, and lab orders; enforces the 24-hour edit-lock and addendum constraints. |
-| **Digital Signature Gen** | Internal Interface | Generates tamper-evident PDF prescriptions with SHA-256 HMAC verification signatures. |
+| **Digital Signature Gen** | Internal Interface | Generates tamper-evident PDF prescriptions with HMAC-SHA256 verification signatures and patient-scoped downloads. |
 | **Billing Engine** | `/api/v1/billing/*` | Computes consultation, lab, and medication line items; issues invoices; and integrates with payment webhook listeners. |
 | **Pharmacy Service** | `/api/v1/pharmacy/*` | Receives verified prescriptions, facilitates medication dispensing, auto-decrements stock inventory, and flags low-stock warnings. |
 | **Audit Logger** | Internal Interface | Asynchronously writes immutable audit events (timestamp, user, IP, action, resource) to write-only audit tables. |
@@ -186,10 +186,10 @@ flowchart TB
 | **FR-PAT-01 / 02** | MPI generation & demographics | Patient Service | Sequence-driven 10-digit MPI with unique DB index |
 | **FR-APPT-02** | Atomic slot lock & double-booking | Scheduling Engine | Redis distributed lock (`SETNX`) with 5-minute TTL |
 | **FR-EHR-01 / 03** | Clinical notes & 24h lock | EHR Service | Database timestamp triggers + addendum foreign keys |
-| **FR-EHR-04** | Tamper-evident PDF prescription | Digital Signature Gen | SHA-256 cryptographic hash embedded in generated PDF |
+| **FR-EHR-04** | Tamper-evident PDF prescription | Digital Signature Gen | HMAC-SHA256 signature over patient, doctor, issue date, diagnosis, vitals, and medicines; signed-in patient downloads are checked against the linked MPI record |
 | **FR-BILL-01 / 03** | Consolidated billing calculation | Billing Engine | Database transaction aggregating consultation + pharmacy items |
 | **FR-PHARM-02 / 03**| Inventory decrement & alert | Pharmacy Service | Atomic SQL `UPDATE inventory SET stock = stock - qty` |
-| **NFR-PERF-01** | <500ms latency under 200 users | API Gateway + Redis | Index-optimized queries + caching for doctor availability |
+| **NFR-PERF-01** | <500ms latency under 200 users | API Gateway + indexed in-memory stores | Patient name/phone and doctor/date slot indexes; CI load check at 200 concurrent users with a 480ms p95 threshold |
 | **SEC-REQ-1.1** | Role-Based Access Control (RBAC) | Security Filter | Claims verification middleware evaluating endpoint privileges |
 | **SEC-REQ-1.2** | Data at rest & transit encryption | Database & Gateway | AES-256 storage encryption + TLS 1.3 transport |
 | **SEC-REQ-2.1** | Immutable Audit Log | Audit Logger | Append-only database table with no UPDATE/DELETE permissions |

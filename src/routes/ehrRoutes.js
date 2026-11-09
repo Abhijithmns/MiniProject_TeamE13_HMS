@@ -6,6 +6,44 @@ const ehrService = require('../services/ehrService');
 const db = require('../db');
 const authenticateToken = require('../middleware/auth');
 const requireRole = require('../middleware/rbac');
+const { generatePrescriptionPdf } = require('../services/prescriptionPdfService');
+
+/**
+ * GET /api/v1/ehr/my/prescriptions
+ * List only prescriptions linked to the authenticated patient's account.
+ */
+router.get('/my/prescriptions', authenticateToken, requireRole(['PATIENT']), (req, res) => {
+  try {
+    const result = ehrService.getPatientPrescriptions({
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      clientIp: req.ip || req.connection?.remoteAddress
+    });
+    res.set('Cache-Control', 'private, no-store');
+    return res.status(200).json({ status: 'success', ...result, count: result.prescriptions.length });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: error.type || 'https://hms.hospital.com/errors/prescription-list-failed',
+      title: status === 403 ? 'Access Forbidden' : 'Prescription List Error',
+      status,
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/v1/ehr/prescriptions/:id/verify
+ * Verify a printed code without disclosing patient or clinical data.
+ */
+router.post('/prescriptions/:id/verify', (req, res) => {
+  const verificationCode = typeof req.body?.verificationCode === 'string'
+    ? req.body.verificationCode.slice(0, 80)
+    : '';
+  const valid = ehrService.verifyPrescriptionCode(req.params.id, verificationCode);
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json({ valid, algorithm: 'HMAC-SHA256' });
+});
 
 /**
  * POST /api/v1/ehr/consultations
@@ -163,6 +201,40 @@ router.get('/consultations/:id', authenticateToken, (req, res) => {
 });
 
 /**
+/**
+ * GET /api/v1/ehr/consultations/:id/prescription
+ * View a verified PDF inline or download it with ?download=true.
+ */
+router.get('/consultations/:id/prescription', authenticateToken, async (req, res) => {
+  try {
+    const { consultation, patient } = ehrService.getPrescriptionForDownload(req.params.id, {
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      clientIp: req.ip || req.connection?.remoteAddress
+    });
+    const pdf = await generatePrescriptionPdf({ consultation, patient });
+    const safeId = consultation.consultationId.replace(/[^a-zA-Z0-9-]/g, '');
+    const disposition = req.query.download === 'true' ? 'attachment' : 'inline';
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `${disposition}; filename="prescription-${safeId}.pdf"`,
+      'Content-Length': String(pdf.length),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    return res.status(200).send(pdf);
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: error.type || 'https://hms.hospital.com/errors/prescription-pdf-failed',
+      title: status === 403 ? 'Access Forbidden' : 'Prescription PDF Error',
+      status,
+      detail: error.message
+    });
+  }
+});
+
+/**
  * GET /api/v1/ehr/consultations/:id/download
  * Download clinical record / prescription data and record EHR_DOWNLOAD in audit log (US-14 / SEC-REQ-2.1)
  */
@@ -197,7 +269,7 @@ router.get('/consultations/:id/download', authenticateToken, (req, res) => {
  * GET /api/v1/ehr/patients/:patientId/consultations
  * Retrieve all clinical consultations recorded for a given patient.
  */
-router.get('/patients/:patientId/consultations', authenticateToken, (req, res) => {
+router.get('/patients/:patientId/consultations', authenticateToken, requireRole.verifyPatientOwnership('patientId'), (req, res) => {
   try {
     const patientId = req.params.patientId;
     const clientIp = req.ip || req.connection?.remoteAddress;

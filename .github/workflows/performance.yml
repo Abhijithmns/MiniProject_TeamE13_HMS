@@ -1,0 +1,31 @@
+name: Performance Criteria
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  api-performance:
+    name: 200-user API performance check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check API performance under concurrent load
+        run: npm run test:performance
+        env:
+          PERF_CONCURRENCY: 200
+          PERF_DURATION_SECONDS: 15
+          PERF_P95_LIMIT_MS: 480

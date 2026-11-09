@@ -47,6 +47,21 @@ All system architecture and design diagrams are located in [`docs/diagrams/`](fi
 The HMS supports <actors> for <core modules, e.g. appointments,
 consultations, billing, records>.
 
+## Digital Prescription PDFs
+
+Doctors can generate a signed prescription PDF from a consultation. A patient account must be linked to its patient MPI record by a receptionist or administrator before the prescription appears in the patient portal.
+
+- Link a patient account: `POST /api/v1/patients/:patientId/account` with `{ "accountUserId": "USR-..." }`.
+- List the signed-in patient's prescriptions: `GET /api/v1/ehr/my/prescriptions`.
+- View or download a PDF: `GET /api/v1/ehr/consultations/:consultationId/prescription` (add `?download=true` to download it).
+- Verify the printed code without returning patient data: `POST /api/v1/ehr/prescriptions/:consultationId/verify` with `{ "verificationCode": "sha256:..." }`.
+
+The PDF code is an HMAC-SHA256 signature covering the patient, doctor, issue date, diagnosis, vitals, and medicines. Set `PRESCRIPTION_SIGNING_KEY` to a strong secret in deployed environments; the built-in value is for local development only.
+
+## Performance Check
+
+Run `npm run test:performance` to exercise patient search, slot retrieval, and consultation reads with 200 concurrent request loops against 10,000 seeded patient records. The check passes only when every request succeeds and p95 latency is at most 480 ms. GitHub Actions runs this check for pull requests targeting `main`.
+
 ## Requirement Coverage Summary
 | Deliverable | Coverage |
 |-------------|----------|

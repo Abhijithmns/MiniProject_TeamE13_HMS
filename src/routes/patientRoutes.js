@@ -8,6 +8,7 @@ const requireRole = require('../middleware/rbac');
 
 // Only RECEPTIONIST, DOCTOR, and ADMIN can access patient data
 const PATIENT_ACCESS_ROLES = ['RECEPTIONIST', 'DOCTOR', 'ADMIN'];
+const PATIENT_ACCOUNT_LINK_ROLES = ['RECEPTIONIST', 'ADMIN'];
 
 /**
  * POST /api/v1/patients/register
@@ -15,7 +16,7 @@ const PATIENT_ACCESS_ROLES = ['RECEPTIONIST', 'DOCTOR', 'ADMIN'];
  */
 router.post('/register', authenticateToken, requireRole(PATIENT_ACCESS_ROLES), (req, res) => {
   try {
-    const { name, dateOfBirth, gender, phone, bloodGroup, emergencyContact } = req.body;
+    const { name, dateOfBirth, gender, phone, bloodGroup, emergencyContact, accountUserId } = req.body;
     const clientIp = req.ip || req.connection?.remoteAddress;
 
     const patient = patientService.registerPatient({
@@ -25,6 +26,7 @@ router.post('/register', authenticateToken, requireRole(PATIENT_ACCESS_ROLES), (
       phone,
       bloodGroup,
       emergencyContact,
+      accountUserId,
       actorUserId: req.user.id,
       actorRole: req.user.role,
       clientIp
@@ -48,9 +50,34 @@ router.post('/register', authenticateToken, requireRole(PATIENT_ACCESS_ROLES), (
 });
 
 /**
+ * POST /api/v1/patients/:patientId/account
+ * Link an existing MPI record to its patient login so personal prescriptions are available in the portal.
+ */
+router.post('/:patientId/account', authenticateToken, requireRole(PATIENT_ACCOUNT_LINK_ROLES), (req, res) => {
+  try {
+    const patient = patientService.linkPatientAccount({
+      patientId: req.params.patientId,
+      accountUserId: req.body.accountUserId,
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      clientIp: req.ip || req.connection?.remoteAddress
+    });
+    return res.status(200).json({ status: 'success', data: { patient } });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: error.type || 'https://hms.hospital.com/errors/patient-account-link-failed',
+      title: status === 403 ? 'Access Forbidden' : 'Patient Account Link Error',
+      status,
+      detail: error.message
+    });
+  }
+});
+
+/**
  * GET /api/v1/patients/search?q=<query>
  * Quick patient search by exact Patient ID, phone number, or partial name (US-05 / FR-PAT-03)
- * Results always return within 1 second (in-memory O(n) scan).
+ * Exact IDs and phones use maps; partial names use a trigram index.
  */
 router.get('/search', authenticateToken, requireRole(PATIENT_ACCESS_ROLES), (req, res) => {
   try {

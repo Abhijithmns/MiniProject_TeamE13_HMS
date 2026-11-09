@@ -4,8 +4,14 @@ class Database {
   constructor() {
     this.users = new Map();
     this.patients = new Map(); // keyed by 10-digit patientId (MPI)
+    this.patientIdsByPhone = new Map();
+    this.patientIdsByNameTrigram = new Map();
+    this.patientIdByAccountUserId = new Map();
     this.consultations = new Map(); // keyed by consultationId (CNS-XXXXXX)
+    this.consultationIdsByPatientId = new Map();
     this.slots = new Map(); // keyed by slotId (SLOT-XXXXXX)
+    this.slotIdsByDoctorId = new Map();
+    this.slotIdsByDoctorAndDate = new Map();
     this.appointments = new Map(); // keyed by appointmentId (APT-XXXXXX)
     this.slotHolds = new Map(); // keyed by slotId, holds temporary lock with TTL
     this.slotLocks = new Map(); // mutex locks for SETNX emulation
@@ -240,22 +246,112 @@ class Database {
    * Create a new patient record with a unique 10-digit MPI ID.
    */
   createPatient(patientData) {
+    const patientId = String(patientData.patientId);
+    const previousPatient = this.patients.get(patientId);
+    if (previousPatient) this.removePatientIndexes(previousPatient);
+
     const patient = {
-      patientId: patientData.patientId,       // 10-digit unique MPI ID
+      patientId,                              // 10-digit unique MPI ID
       name: patientData.name,
       dateOfBirth: patientData.dateOfBirth,
       gender: patientData.gender,
       phone: patientData.phone,               // stored as 10-digit string
       bloodGroup: patientData.bloodGroup || null,
       emergencyContact: patientData.emergencyContact,
+      accountUserId: patientData.accountUserId || null,
       registeredAt: new Date().toISOString()
     };
     this.patients.set(patient.patientId, patient);
+    this.addPatientIndexes(patient);
     return patient;
+  }
+
+  addPatientIndexes(patient) {
+    const addToSetIndex = (index, key, value) => {
+      if (!key) return;
+      if (!index.has(key)) index.set(key, new Set());
+      index.get(key).add(value);
+    };
+
+    addToSetIndex(this.patientIdsByPhone, patient.phone, patient.patientId);
+    if (patient.accountUserId) {
+      this.patientIdByAccountUserId.set(patient.accountUserId, patient.patientId);
+    }
+
+    const normalizedName = String(patient.name || '').toLowerCase();
+    const trigrams = new Set();
+    for (let index = 0; index <= normalizedName.length - 3; index++) {
+      trigrams.add(normalizedName.slice(index, index + 3));
+    }
+    for (const trigram of trigrams) {
+      addToSetIndex(this.patientIdsByNameTrigram, trigram, patient.patientId);
+    }
+  }
+
+  removePatientIndexes(patient) {
+    const removeFromSetIndex = (index, key, value) => {
+      const values = index.get(key);
+      if (!values) return;
+      values.delete(value);
+      if (values.size === 0) index.delete(key);
+    };
+
+    removeFromSetIndex(this.patientIdsByPhone, patient.phone, patient.patientId);
+    if (patient.accountUserId && this.patientIdByAccountUserId.get(patient.accountUserId) === patient.patientId) {
+      this.patientIdByAccountUserId.delete(patient.accountUserId);
+    }
+    const normalizedName = String(patient.name || '').toLowerCase();
+    const trigrams = new Set();
+    for (let index = 0; index <= normalizedName.length - 3; index++) {
+      trigrams.add(normalizedName.slice(index, index + 3));
+    }
+    for (const trigram of trigrams) {
+      removeFromSetIndex(this.patientIdsByNameTrigram, trigram, patient.patientId);
+    }
   }
 
   findPatientById(patientId) {
     return this.patients.get(String(patientId)) || null;
+  }
+
+  findPatientByAccountUserId(accountUserId) {
+    const patientId = this.patientIdByAccountUserId.get(String(accountUserId));
+    return patientId ? this.findPatientById(patientId) : null;
+  }
+
+  linkPatientAccount(patientId, accountUserId) {
+    const patient = this.findPatientById(patientId);
+    if (!patient) return null;
+    this.removePatientIndexes(patient);
+    patient.accountUserId = String(accountUserId);
+    this.addPatientIndexes(patient);
+    return patient;
+  }
+
+  getPatientsByPhone(phone) {
+    const patientIds = this.patientIdsByPhone.get(String(phone)) || new Set();
+    return [...patientIds].map(patientId => this.patients.get(patientId)).filter(Boolean);
+  }
+
+  searchPatientsByName(query) {
+    const normalizedQuery = String(query || '').toLowerCase();
+    if (normalizedQuery.length < 3) {
+      return [...this.patients.values()].filter(patient => String(patient.name || '').toLowerCase().includes(normalizedQuery));
+    }
+
+    let candidates = null;
+    for (let index = 0; index <= normalizedQuery.length - 3; index++) {
+      const trigram = normalizedQuery.slice(index, index + 3);
+      const indexedIds = this.patientIdsByNameTrigram.get(trigram) || new Set();
+      if (candidates === null || indexedIds.size < candidates.size) {
+        candidates = new Set(indexedIds);
+      }
+      if (candidates.size === 0) return [];
+    }
+
+    return [...candidates]
+      .map(patientId => this.patients.get(patientId))
+      .filter(patient => patient && String(patient.name || '').toLowerCase().includes(normalizedQuery));
   }
 
   getAllPatients() {
@@ -269,6 +365,7 @@ class Database {
       consultationId: consultationData.consultationId,
       appointmentId: consultationData.appointmentId || null,
       patientId: String(consultationData.patientId),
+      patientName: consultationData.patientName || '',
       doctorId: consultationData.doctorId,
       doctorName: consultationData.doctorName || 'Doctor',
       symptoms: consultationData.symptoms || '',
@@ -288,6 +385,9 @@ class Database {
       updatedAt: consultationData.updatedAt || new Date().toISOString()
     };
     this.consultations.set(consultation.consultationId, consultation);
+    const patientId = String(consultation.patientId);
+    if (!this.consultationIdsByPatientId.has(patientId)) this.consultationIdsByPatientId.set(patientId, new Set());
+    this.consultationIdsByPatientId.get(patientId).add(consultation.consultationId);
     return consultation;
   }
 
@@ -298,8 +398,17 @@ class Database {
   updateConsultation(consultationId, updates) {
     const consultation = this.findConsultationById(consultationId);
     if (!consultation) return null;
+    const previousPatientId = String(consultation.patientId);
     Object.assign(consultation, updates);
     consultation.updatedAt = updates.updatedAt || new Date().toISOString();
+    const nextPatientId = String(consultation.patientId);
+    if (previousPatientId !== nextPatientId) {
+      const previousIds = this.consultationIdsByPatientId.get(previousPatientId);
+      previousIds?.delete(consultation.consultationId);
+      if (previousIds?.size === 0) this.consultationIdsByPatientId.delete(previousPatientId);
+      if (!this.consultationIdsByPatientId.has(nextPatientId)) this.consultationIdsByPatientId.set(nextPatientId, new Set());
+      this.consultationIdsByPatientId.get(nextPatientId).add(consultation.consultationId);
+    }
     this.consultations.set(consultation.consultationId, consultation);
     return consultation;
   }
@@ -317,7 +426,8 @@ class Database {
 
   getConsultationsByPatientId(patientId) {
     const id = String(patientId);
-    return [...this.consultations.values()].filter(c => c.patientId === id);
+    const consultationIds = this.consultationIdsByPatientId.get(id) || new Set();
+    return [...consultationIds].map(consultationId => this.consultations.get(consultationId)).filter(Boolean);
   }
 
   getConsultationsByDoctorId(doctorId) {
@@ -437,6 +547,12 @@ class Database {
     return [...this.pharmacyAlerts].reverse();
   }
 
+  updatePharmacyQueueSignature(consultationId, prescriptionHash) {
+    for (const item of this.pharmacyQueue) {
+      if (item.consultationId === consultationId) item.prescriptionHash = prescriptionHash;
+    }
+  }
+
   // ─── Slot & Schedule Store (FR-APPT-01, FR-APPT-02) ──────────────────────────
 
   createSlot(slotData) {
@@ -456,7 +572,28 @@ class Database {
       createdAt: slotData.createdAt || new Date().toISOString()
     };
     this.slots.set(slot.slotId, slot);
+    this.addSlotIndexes(slot);
     return slot;
+  }
+
+  addSlotIndexes(slot) {
+    const addToIndex = (index, key, slotId) => {
+      if (!index.has(key)) index.set(key, new Set());
+      index.get(key).add(slotId);
+    };
+    addToIndex(this.slotIdsByDoctorId, String(slot.doctorId), slot.slotId);
+    addToIndex(this.slotIdsByDoctorAndDate, `${slot.doctorId}:${slot.date}`, slot.slotId);
+  }
+
+  removeSlotIndexes(slot) {
+    const removeFromIndex = (index, key, slotId) => {
+      const ids = index.get(key);
+      if (!ids) return;
+      ids.delete(slotId);
+      if (ids.size === 0) index.delete(key);
+    };
+    removeFromIndex(this.slotIdsByDoctorId, String(slot.doctorId), slot.slotId);
+    removeFromIndex(this.slotIdsByDoctorAndDate, `${slot.doctorId}:${slot.date}`, slot.slotId);
   }
 
   findSlotById(slotId) {
@@ -484,17 +621,19 @@ class Database {
   }
 
   getSlotsByDoctor(doctorId, date = null) {
-    return [...this.slots.values()].filter(s => {
-      if (s.doctorId !== doctorId) return false;
-      if (date && s.date !== date) return false;
-      return true;
-    });
+    const slotIds = date
+      ? (this.slotIdsByDoctorAndDate.get(`${doctorId}:${date}`) || new Set())
+      : (this.slotIdsByDoctorId.get(String(doctorId)) || new Set());
+    return [...slotIds].map(slotId => this.slots.get(slotId)).filter(Boolean);
   }
 
   updateSlot(slotId, updates) {
     const slot = this.findSlotById(slotId);
     if (!slot) return null;
+    const indexesNeedUpdate = updates.doctorId !== undefined || updates.date !== undefined;
+    if (indexesNeedUpdate) this.removeSlotIndexes(slot);
     Object.assign(slot, updates);
+    if (indexesNeedUpdate) this.addSlotIndexes(slot);
     this.slots.set(slot.slotId, slot);
     return slot;
   }
@@ -689,12 +828,18 @@ class Database {
   reset() {
     this.users.clear();
     this.patients.clear();
+    this.patientIdsByPhone.clear();
+    this.patientIdsByNameTrigram.clear();
+    this.patientIdByAccountUserId.clear();
     this.consultations.clear();
+    this.consultationIdsByPatientId.clear();
     this.pharmacyQueue = [];
     this.pharmacyInventory.clear();
     this.pharmacyAlerts = [];
     this.auditLogs = [];
     this.slots.clear();
+    this.slotIdsByDoctorId.clear();
+    this.slotIdsByDoctorAndDate.clear();
     this.appointments.clear();
     this.slotHolds.clear();
     this.slotLocks.clear();

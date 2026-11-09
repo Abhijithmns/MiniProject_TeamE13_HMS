@@ -148,7 +148,24 @@
             <h3>Reception Onboarding Portal</h3>
             <p>Requires: <code>RECEPTIONIST</code> or <code>ADMIN</code></p>
             <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/receptionist')">Access Reception Portal</button>
+            <div id="patient-account-link-form" class="account-link-form hidden">
+              <h4>Link a Patient Account</h4>
+              <label for="link-patient-mpi">Patient ID (MPI)</label>
+              <input id="link-patient-mpi" type="text" placeholder="10-digit patient ID">
+              <label for="link-patient-user">Patient User ID</label>
+              <input id="link-patient-user" type="text" placeholder="ID shown after account registration">
+              <button class="btn btn-secondary" type="button" onclick="linkPatientAccountUI()">Link Account</button>
+              <div id="patient-account-link-alert" class="alert hidden"></div>
+            </div>
           </div>
+        </div>
+
+        <div id="patient-prescriptions-panel" class="portal-box hidden" style="margin-top:1rem;">
+          <h3>My Digital Prescriptions</h3>
+          <p>View or download verified prescriptions from your patient account. If your list is empty, ask the front desk to link your patient record.</p>
+          <button class="btn btn-primary" type="button" onclick="loadMyPrescriptions()">Refresh My Prescriptions</button>
+          <div id="prescription-list-status" class="alert info" style="margin-top:1rem;">Loading prescriptions…</div>
+          <div id="prescription-list" class="prescription-list"></div>
         </div>
 
         <div id="rbac-result" class="portal-result hidden">

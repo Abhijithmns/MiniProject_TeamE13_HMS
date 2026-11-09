@@ -73,7 +73,12 @@ function verifyPatientOwnership(paramKey = 'patientId') {
 
     // Patient role must own the requested record
     if (userRole === 'PATIENT') {
-      const isOwner = (req.user.id === requestedId || req.user.patientId === requestedId);
+      const linkedPatient = db.findPatientByAccountUserId(req.user.id);
+      const isOwner = (
+        req.user.id === requestedId ||
+        req.user.patientId === requestedId ||
+        linkedPatient?.patientId === String(requestedId)
+      );
       if (isOwner) {
         return next();
       }

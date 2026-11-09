@@ -291,12 +291,146 @@ async function executeLogin(email, password) {
 
 function updateSessionUI() {
   const badge = document.getElementById('session-badge');
+  const prescriptionsPanel = document.getElementById('patient-prescriptions-panel');
+  const accountLinkForm = document.getElementById('patient-account-link-form');
   if (currentUser) {
     badge.textContent = `${currentUser.name} (${currentUser.role})`;
     badge.style.background = '#047857';
   } else {
     badge.textContent = 'Not Logged In';
     badge.style.background = '#374151';
+  }
+
+  if (prescriptionsPanel) {
+    const isPatient = currentUser?.role === 'PATIENT';
+    prescriptionsPanel.classList.toggle('hidden', !isPatient);
+    if (isPatient && currentToken) loadMyPrescriptions();
+  }
+  if (accountLinkForm) {
+    const canLinkAccounts = ['RECEPTIONIST', 'ADMIN'].includes(currentUser?.role);
+    accountLinkForm.classList.toggle('hidden', !canLinkAccounts);
+  }
+}
+
+async function linkPatientAccountUI() {
+  const alert = document.getElementById('patient-account-link-alert');
+  const patientId = document.getElementById('link-patient-mpi').value.trim();
+  const accountUserId = document.getElementById('link-patient-user').value.trim();
+  alert.className = 'alert info';
+  alert.textContent = 'Linking patient record…';
+  alert.classList.remove('hidden');
+
+  try {
+    const response = await fetch(`/api/v1/patients/${encodeURIComponent(patientId)}/account`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${currentToken}`
+      },
+      body: JSON.stringify({ accountUserId })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Patient account link failed.');
+    alert.className = 'alert success';
+    alert.textContent = `Patient ${data.data.patient.patientId} linked to ${data.data.patient.accountUserId}.`;
+  } catch (error) {
+    alert.className = 'alert error';
+    alert.textContent = error.message;
+  }
+}
+
+async function loadMyPrescriptions() {
+  const status = document.getElementById('prescription-list-status');
+  const container = document.getElementById('prescription-list');
+  if (!status || !container) return;
+  if (!currentToken || currentUser?.role !== 'PATIENT') {
+    status.className = 'alert error';
+    status.textContent = 'Sign in with a patient account to view prescriptions.';
+    container.replaceChildren();
+    return;
+  }
+
+  status.className = 'alert info';
+  status.textContent = 'Loading your prescriptions…';
+  container.replaceChildren();
+
+  try {
+    const response = await fetch('/api/v1/ehr/my/prescriptions', {
+      headers: { Authorization: `Bearer ${currentToken}` }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Could not load prescriptions.');
+
+    if (data.count === 0) {
+      status.className = 'alert info';
+      status.textContent = data.patientId
+        ? 'No prescriptions are available yet.'
+        : 'No patient record is linked to this account yet. Please ask the front desk to link it.';
+      return;
+    }
+
+    status.className = 'alert success';
+    status.textContent = `${data.count} verified prescription${data.count === 1 ? '' : 's'} available.`;
+    container.innerHTML = data.prescriptions.map(prescription => `
+      <article class="prescription-card">
+        <div>
+          <strong>${escapeHtml(prescription.diagnosis || 'Prescription')}</strong>
+          <div>Issued ${escapeHtml(new Date(prescription.issuedAt).toLocaleString())} by ${escapeHtml(prescription.doctorName)}</div>
+          <div>${escapeHtml(prescription.medicationCount)} medicine(s) · ${escapeHtml(prescription.consultationId)}</div>
+        </div>
+        <div class="prescription-actions">
+          <button class="btn btn-outline" type="button" data-prescription-action="view" data-prescription-id="${escapeHtml(prescription.consultationId)}">View PDF</button>
+          <button class="btn btn-secondary" type="button" data-prescription-action="download" data-prescription-id="${escapeHtml(prescription.consultationId)}">Download PDF</button>
+        </div>
+      </article>
+    `).join('');
+
+    container.querySelectorAll('[data-prescription-action]').forEach(button => {
+      button.addEventListener('click', () => openPrescriptionPdf(
+        button.dataset.prescriptionId,
+        button.dataset.prescriptionAction === 'download'
+      ));
+    });
+  } catch (error) {
+    status.className = 'alert error';
+    status.textContent = error.message;
+  }
+}
+
+async function openPrescriptionPdf(consultationId, download) {
+  const viewer = download ? null : window.open('about:blank', '_blank');
+  try {
+    const response = await fetch(`/api/v1/ehr/consultations/${encodeURIComponent(consultationId)}/prescription${download ? '?download=true' : ''}`, {
+      headers: { Authorization: `Bearer ${currentToken}` }
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Could not retrieve the prescription PDF.');
+    }
+
+    const pdfUrl = URL.createObjectURL(await response.blob());
+    if (download) {
+      const link = document.createElement('a');
+      link.href = pdfUrl;
+      link.download = `prescription-${consultationId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } else if (viewer) {
+      viewer.location.href = pdfUrl;
+    } else {
+      const link = document.createElement('a');
+      link.href = pdfUrl;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.click();
+    }
+    setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000);
+  } catch (error) {
+    if (viewer) viewer.close();
+    const status = document.getElementById('prescription-list-status');
+    status.className = 'alert error';
+    status.textContent = error.message;
   }
 }
 

@@ -11,6 +11,8 @@ class Database {
     this.slotLocks = new Map(); // mutex locks for SETNX emulation
     this.notifications = []; // booking confirmation notifications (FR-APPT-04)
     this.doctorSchedules = new Map(); // keyed by doctorId:date
+    this.invoices = new Map(); // keyed by invoiceNumber (INV-2026-XXXX) (FR-BILL-01, FR-BILL-03)
+    this.payments = []; // payment records and receipts (FR-BILL-02)
     this.pharmacyQueue = []; // live queue of prescriptions for dispensary (FR-PHARM-01)
     this.auditLogs = [];
     this.seedDefaults();
@@ -57,6 +59,16 @@ class Database {
         email: 'receptionist@hospital.com',
         passwordHash: defaultPasswordHash,
         role: 'RECEPTIONIST',
+        failedAttempts: 0,
+        lockedUntil: null,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'USR-PHARM-01',
+        name: 'Hospital Pharmacist',
+        email: 'pharmacist@hospital.com',
+        passwordHash: defaultPasswordHash,
+        role: 'PHARMACIST',
         failedAttempts: 0,
         lockedUntil: null,
         createdAt: new Date().toISOString()
@@ -420,6 +432,77 @@ class Database {
     return [...this.notifications];
   }
 
+  // ─── Billing & Invoicing Store (FR-BILL-01, FR-BILL-02, FR-BILL-03) ────────
+
+  createInvoice(invoiceData) {
+    const year = new Date().getFullYear();
+    const invoiceNumber = invoiceData.invoiceNumber || `INV-${year}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const invoice = {
+      invoiceNumber,
+      patientId: String(invoiceData.patientId),
+      patientName: invoiceData.patientName || 'Patient',
+      consultationId: invoiceData.consultationId || null,
+      appointmentId: invoiceData.appointmentId || null,
+      lineItems: Array.isArray(invoiceData.lineItems) ? invoiceData.lineItems : [],
+      subtotal: Number(invoiceData.subtotal) || 0,
+      taxRate: Number(invoiceData.taxRate) || 0.05,
+      taxAmount: Number(invoiceData.taxAmount) || 0,
+      totalAmount: Number(invoiceData.totalAmount) || 0,
+      amountPaid: Number(invoiceData.amountPaid) || 0,
+      balance: Number(invoiceData.balance) || 0,
+      status: invoiceData.status || 'PENDING', // PENDING, PARTIAL, PAID
+      paymentMethod: invoiceData.paymentMethod || null,
+      receiptNumber: invoiceData.receiptNumber || null,
+      createdAt: invoiceData.createdAt || new Date().toISOString(),
+      updatedAt: invoiceData.updatedAt || new Date().toISOString()
+    };
+    this.invoices.set(invoice.invoiceNumber, invoice);
+    return invoice;
+  }
+
+  findInvoiceByNumber(invoiceNumber) {
+    if (!invoiceNumber) return null;
+    return this.invoices.get(String(invoiceNumber)) || null;
+  }
+
+  getInvoicesByPatientId(patientId) {
+    const id = String(patientId);
+    return [...this.invoices.values()].filter(inv => inv.patientId === id);
+  }
+
+  getAllInvoices() {
+    return [...this.invoices.values()];
+  }
+
+  updateInvoice(invoiceNumber, updates) {
+    const invoice = this.findInvoiceByNumber(invoiceNumber);
+    if (!invoice) return null;
+    Object.assign(invoice, updates);
+    invoice.updatedAt = new Date().toISOString();
+    this.invoices.set(invoice.invoiceNumber, invoice);
+    return invoice;
+  }
+
+  recordPayment(paymentData) {
+    const payment = {
+      paymentId: paymentData.paymentId || `PAY-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      receiptNumber: paymentData.receiptNumber || `REC-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      invoiceNumber: paymentData.invoiceNumber,
+      patientId: String(paymentData.patientId),
+      amount: Number(paymentData.amount) || 0,
+      paymentMethod: paymentData.paymentMethod ? paymentData.paymentMethod.toUpperCase() : 'CASH',
+      transactionReference: paymentData.transactionReference || null,
+      status: 'COMPLETED',
+      recordedAt: paymentData.recordedAt || new Date().toISOString()
+    };
+    this.payments.push(Object.freeze(payment));
+    return payment;
+  }
+
+  getPaymentsByInvoiceNumber(invoiceNumber) {
+    return this.payments.filter(p => p.invoiceNumber === invoiceNumber);
+  }
+
   // ─── Audit Log Store ─────────────────────────────────────────────────────────
 
   // Immutable audit log store: Append-only
@@ -457,6 +540,8 @@ class Database {
     this.slotLocks.clear();
     this.notifications = [];
     this.doctorSchedules.clear();
+    this.invoices.clear();
+    this.payments = [];
     this.seedDefaults();
   }
 }

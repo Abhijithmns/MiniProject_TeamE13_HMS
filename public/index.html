@@ -24,6 +24,7 @@
       <button class="tab-btn" data-tab="tab-rbac">Role-Based Portals</button>
       <button class="tab-btn" data-tab="tab-booking">Appointment Booking (FR-APPT-01 & FR-APPT-02)</button>
       <button class="tab-btn" data-tab="tab-ehr">Doctor Consultation (US-09 & US-10)</button>
+      <button class="tab-btn" data-tab="tab-billing">Billing & Payments (US-12)</button>
       <button class="tab-btn" data-tab="tab-audit">Audit Trail (Admin)</button>
     </nav>
 
@@ -453,7 +454,77 @@
       </div>
     </section>
 
-    <!-- Tab 5: Immutable Audit Trail -->
+    <!-- Tab 5: Billing & Payments (US-12 / FR-BILL-01, FR-BILL-02, FR-BILL-03) -->
+    <section id="tab-billing" class="tab-content">
+      <div class="card">
+        <h2>Billing & Payment Processing (US-12 / TC-HMS-06)</h2>
+        <p class="description">
+          Aggregates physician consultation fees, lab diagnostic tests, and medicine costs into a consolidated bill with 5% tax. Supports payment recording via Cash, Card, and UPI, generates unique invoices, and issues official receipts.
+        </p>
+
+        <div class="quick-fill-section">
+          <span class="quick-fill-label">Pre-configured Scenario:</span>
+          <button type="button" class="btn btn-outline" onclick="loadTCHMS06Demo()">Load TC-HMS-06: $50 Consultation + $30 Lab + 5% Tax via UPI</button>
+        </div>
+
+        <form id="billing-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="bill-patient-id">Patient MPI ID *</label>
+              <input type="text" id="bill-patient-id" required placeholder="e.g. 1000000001 or PAT-01">
+            </div>
+            <div class="form-group">
+              <label for="bill-tax-rate">Tax Rate (%)</label>
+              <input type="number" id="bill-tax-rate" value="5" step="0.1" min="0">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="bill-consultation-fee">Consultation Fee ($)</label>
+              <input type="number" id="bill-consultation-fee" value="50.00" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+              <label for="bill-lab-fee">Lab Tests Fee ($)</label>
+              <input type="number" id="bill-lab-fee" value="30.00" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+              <label for="bill-medicine-fee">Medicine Costs ($)</label>
+              <input type="number" id="bill-medicine-fee" value="0.00" step="0.01" min="0">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="bill-payment-method">Payment Method (FR-BILL-02)</label>
+              <select id="bill-payment-method">
+                <option value="UPI">UPI (Unified Payments Interface)</option>
+                <option value="CARD">Credit / Debit Card</option>
+                <option value="CASH">Cash</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="bill-amount-paid">Amount Paid ($)</label>
+              <input type="number" id="bill-amount-paid" value="84.00" step="0.01" min="0">
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Generate Bill & Process Payment</button>
+            <button type="button" class="btn btn-secondary" onclick="calculateBillPreview()">Calculate Total Preview</button>
+          </div>
+        </form>
+
+        <div id="billing-preview-alert" class="alert hidden"></div>
+
+        <div id="billing-result-card" class="token-container hidden">
+          <h3>Generated Invoice & Official Receipt (FR-BILL-03)</h3>
+          <pre id="billing-display"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 6: Immutable Audit Trail -->
     <section id="tab-audit" class="tab-content">
       <div class="card">
         <div class="card-header-flex">

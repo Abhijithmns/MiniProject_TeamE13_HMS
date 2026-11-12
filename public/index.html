@@ -17,6 +17,16 @@
       </div>
       <div class="header-session">
         <div id="session-badge" class="session-badge">Not Logged In</div>
+        <div id="quick-role-switcher" class="quick-role-switcher hidden" style="display:inline-flex; align-items:center; gap:0.4rem;">
+          <label for="demo-role-select" style="font-size:0.75rem; color:var(--text-muted); margin:0;">Persona:</label>
+          <select id="demo-role-select" style="font-size:0.8rem; padding:0.25rem 0.5rem; border-radius:4px; border:1px solid var(--border-color); background:#fff;" onchange="switchPersona(this.value)">
+            <option value="DOCTOR">Doctor (Dr. Smith)</option>
+            <option value="PATIENT">Patient (Jane)</option>
+            <option value="RECEPTIONIST">Receptionist</option>
+            <option value="PHARMACIST">Pharmacist</option>
+            <option value="ADMIN">System Admin</option>
+          </select>
+        </div>
         <button id="header-logout-btn" class="btn btn-secondary btn-sm hidden" onclick="logoutUser()">Sign Out</button>
       </div>
     </div>
@@ -37,7 +47,7 @@
     <!-- Route Guard Notification View (Auth & Role Access Control) -->
     <section id="route-guard-view" class="tab-content">
       <div class="card" style="text-align:center; max-width:620px; margin:2rem auto; padding:2.5rem 1.5rem;">
-        <div id="guard-icon" style="font-size:2.5rem; margin-bottom:1rem;">🔒</div>
+        <div id="guard-icon" style="font-size:1.1rem; font-weight:700; margin-bottom:1rem; color:#dc2626;">[Access Restricted]</div>
         <h2 id="guard-title" style="margin-bottom:0.75rem;">Authentication Required</h2>
         <p id="guard-message" class="description" style="margin-bottom:1.5rem; font-size:0.95rem;">
           You must be signed in to access this hospital feature.
@@ -64,6 +74,15 @@
           <button class="btn btn-outline" onclick="quickFill('patient.jane@hospital.com', 'HospSecure#2026')">Patient</button>
           <button class="btn btn-outline" onclick="quickFill('receptionist@hospital.com', 'HospSecure#2026')">Receptionist</button>
           <button class="btn btn-outline" onclick="quickFill('admin@hospital.com', 'HospSecure#2026')">System Admin</button>
+        </div>
+
+        <div id="active-session-card" class="token-container hidden" style="border-color:#0284c7; background-color:#f0f9ff; margin-bottom:1.5rem;">
+          <h3 style="color:#0369a1; margin-bottom:0.25rem;">Active Workspace Session</h3>
+          <p id="active-session-summary" style="font-size:0.9rem; margin-bottom:0.75rem; color:#0f172a;"></p>
+          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="navigateToDefaultPortal()">Open My Department Portal</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="logoutUser()">Sign Out</button>
+          </div>
         </div>
 
         <form id="login-form">
@@ -93,8 +112,8 @@
       </div>
     </section>
 
-    <!-- Tab 2: User Registration -->
-    <section id="tab-register" class="tab-content">
+    <!-- Tab 2: User Registration (Admin or Anonymous Only) -->
+    <section id="tab-register" class="tab-content" data-roles="ADMIN" data-anonymous="true">
       <div class="card">
         <h2>New User Registration</h2>
         <p class="description">
@@ -155,23 +174,23 @@
         </p>
 
         <div class="rbac-grid">
-          <div class="portal-box">
+          <div class="portal-box" data-roles="PATIENT ADMIN">
             <h3>Patient Records Portal</h3>
             <p>Access Level: <code>PATIENT</code> or <code>ADMIN</code></p>
             <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/patient')">Open Patient Portal</button>
           </div>
 
-          <div class="portal-box">
+          <div class="portal-box" data-roles="DOCTOR ADMIN">
             <h3>Doctor Clinical Portal</h3>
             <p>Access Level: <code>DOCTOR</code> or <code>ADMIN</code></p>
             <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/doctor')">Open Doctor Portal</button>
           </div>
 
-          <div class="portal-box">
+          <div class="portal-box" data-roles="RECEPTIONIST ADMIN">
             <h3>Reception Onboarding Portal</h3>
             <p>Access Level: <code>RECEPTIONIST</code> or <code>ADMIN</code></p>
             <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/receptionist')">Open Reception Portal</button>
-            <div id="patient-account-link-form" class="account-link-form hidden">
+            <div id="patient-account-link-form" class="account-link-form hidden" data-roles="RECEPTIONIST ADMIN">
               <h4>Link a Patient Record</h4>
               <label for="link-patient-mpi">Patient ID (MPI)</label>
               <input id="link-patient-mpi" type="text" placeholder="10-digit patient ID">
@@ -181,13 +200,19 @@
               <div id="patient-account-link-alert" class="alert hidden"></div>
             </div>
           </div>
+
+          <div class="portal-box" data-roles="PHARMACIST ADMIN">
+            <h3>Pharmacy Operations Portal</h3>
+            <p>Access Level: <code>PHARMACIST</code> or <code>ADMIN</code></p>
+            <button class="btn btn-primary" onclick="navigateTo('#pharmacy')">Open Pharmacy Queue</button>
+          </div>
         </div>
 
-        <div id="patient-prescriptions-panel" class="portal-box hidden" style="margin-top:1rem;">
+        <div id="patient-prescriptions-panel" class="portal-box hidden" data-roles="PATIENT ADMIN" style="margin-top:1rem;">
           <h3>My Digital Prescriptions</h3>
           <p>View verified prescriptions issued by your physician. If your list is empty, ask the front desk to link your patient record.</p>
           <button class="btn btn-primary" type="button" onclick="loadMyPrescriptions()">Refresh Prescriptions</button>
-          <div id="prescription-list-status" class="alert info" style="margin-top:1rem;">Loading prescriptions…</div>
+          <div id="prescription-list-status" class="alert info" style="margin-top:1rem;">Loading prescriptions...</div>
           <div id="prescription-list" class="prescription-list"></div>
         </div>
 
@@ -206,8 +231,8 @@
           Manage physician schedules, search open appointment slots, and reserve visits with automatic slot hold protection.
         </p>
 
-        <!-- Doctor Working Hours Configuration -->
-        <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-bottom: 2rem;">
+        <!-- Doctor Working Hours Configuration (Only Doctors & Admins) -->
+        <div data-roles="DOCTOR ADMIN" style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-bottom: 2rem;">
           <h3 style="margin-bottom: 0.5rem;">1. Configure Doctor Consultation Schedule</h3>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
             For Doctors and Administrators. Configure consultation working hours to automatically generate available 15-minute consultation slots.
@@ -251,8 +276,8 @@
           <div id="wh-alert" class="alert hidden"></div>
         </div>
 
-        <!-- Patient Slot Booking & Hold -->
-        <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-bottom: 2rem;">
+        <!-- Patient Slot Booking & Hold (Patient, Receptionist, Doctor, Admin) -->
+        <div data-roles="PATIENT RECEPTIONIST DOCTOR ADMIN" style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-bottom: 2rem;">
           <h3 style="margin-bottom: 0.5rem;">2. Search &amp; Book Available Slots</h3>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
             Shows only open slots for the selected doctor. Selecting a slot reserves it for 5 minutes during checkout to prevent duplicate bookings.
@@ -324,8 +349,8 @@
           </div>
         </div>
 
-        <!-- Concurrency Double-Booking Simulator -->
-        <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem;">
+        <!-- Concurrency Double-Booking Simulator (Admin Only) -->
+        <div data-roles="ADMIN" style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-bottom: 2rem;">
           <h3 style="margin-bottom: 0.5rem;">3. Double-Booking Prevention Test</h3>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
             Simulates two simultaneous booking requests submitted at the exact same millisecond for the same time slot to verify system concurrency isolation.
@@ -349,8 +374,8 @@
           </div>
         </div>
 
-        <!-- Cancel or Reschedule Appointment -->
-        <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-top: 2rem;">
+        <!-- Cancel or Reschedule Appointment (Patient, Receptionist, Admin) -->
+        <div data-roles="PATIENT RECEPTIONIST ADMIN" style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem;">
           <h3 style="margin-bottom: 0.5rem;">4. Cancel or Reschedule an Appointment</h3>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
             Appointments can be cancelled or rescheduled up to 2 hours before the scheduled time. Released slots immediately return to the available booking pool.
@@ -387,8 +412,8 @@
       </div>
     </section>
 
-    <!-- Tab 5: Doctor Consultation & EHR -->
-    <section id="tab-ehr" class="tab-content">
+    <!-- Tab 5: Doctor Consultation & EHR (Doctor & Admin Only) -->
+    <section id="tab-ehr" class="tab-content" data-roles="DOCTOR ADMIN">
       <div class="card">
         <h2>Clinical Consultations &amp; Electronic Health Records</h2>
         <p class="description">
@@ -494,65 +519,100 @@
     </section>
 
     <!-- Tab 6: Billing & Payments -->
-    <section id="tab-billing" class="tab-content">
+    <section id="tab-billing" class="tab-content" data-roles="RECEPTIONIST PATIENT ADMIN">
       <div class="card">
         <h2>Patient Billing &amp; Payment Processing</h2>
-        <p class="description">
-          Consolidates physician consultation fees, laboratory diagnostic tests, and medication costs into a single invoice with 5% tax. Supports Cash, Card, and UPI payments and issues official receipts.
-        </p>
 
-        <div class="quick-fill-section">
-          <span class="quick-fill-label">Quick Calculation:</span>
-          <button type="button" class="btn btn-outline" onclick="loadTCHMS06Demo()">Load Standard Visit Preset ($50 Consultation + $30 Lab + 5% Tax)</button>
+        <!-- Staff Billing Creation (Receptionist & Admin Only) -->
+        <div data-roles="RECEPTIONIST ADMIN">
+          <p class="description">
+            Consolidates physician consultation fees, laboratory diagnostic tests, and medication costs into a single invoice with 5% tax. Supports Cash, Card, and UPI payments and issues official receipts.
+          </p>
+
+          <div class="quick-fill-section">
+            <span class="quick-fill-label">Quick Calculation:</span>
+            <button type="button" class="btn btn-outline" onclick="loadTCHMS06Demo()">Load Standard Visit Preset ($50 Consultation + $30 Lab + 5% Tax)</button>
+          </div>
+
+          <form id="billing-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="bill-patient-id">Patient ID *</label>
+                <input type="text" id="bill-patient-id" required placeholder="e.g. 1000000001 or PAT-01">
+              </div>
+              <div class="form-group">
+                <label for="bill-tax-rate">Tax Rate (%)</label>
+                <input type="number" id="bill-tax-rate" value="5" step="0.1" min="0">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="bill-consultation-fee">Consultation Fee ($)</label>
+                <input type="number" id="bill-consultation-fee" value="50.00" step="0.01" min="0">
+              </div>
+              <div class="form-group">
+                <label for="bill-lab-fee">Lab Tests Fee ($)</label>
+                <input type="number" id="bill-lab-fee" value="30.00" step="0.01" min="0">
+              </div>
+              <div class="form-group">
+                <label for="bill-medicine-fee">Medicine Costs ($)</label>
+                <input type="number" id="bill-medicine-fee" value="0.00" step="0.01" min="0">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="bill-payment-method">Payment Method</label>
+                <select id="bill-payment-method">
+                  <option value="UPI">UPI (Unified Payments Interface)</option>
+                  <option value="CARD">Credit / Debit Card</option>
+                  <option value="CASH">Cash</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="bill-amount-paid">Amount Paid ($)</label>
+                <input type="number" id="bill-amount-paid" value="84.00" step="0.01" min="0">
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Generate Bill &amp; Process Payment</button>
+              <button type="button" class="btn btn-secondary" onclick="calculateBillPreview()">Calculate Total Preview</button>
+            </div>
+          </form>
         </div>
 
-        <form id="billing-form">
-          <div class="form-row">
-            <div class="form-group">
-              <label for="bill-patient-id">Patient ID *</label>
-              <input type="text" id="bill-patient-id" required placeholder="e.g. 1000000001 or PAT-01">
+        <!-- Patient Online Payment Settlement (Patient Only) -->
+        <div data-roles="PATIENT" style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-bottom: 1.5rem;">
+          <h3 style="margin-bottom: 0.5rem;">My Outstanding Medical Invoices</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Settle your medical visit consultation and pharmacy charges online with instant payment receipt generation.
+          </p>
+          <form id="patient-payment-form" onsubmit="handlePatientPayment(event)">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="pat-pay-id">Patient ID *</label>
+                <input type="text" id="pat-pay-id" value="PAT-01" required placeholder="e.g. PAT-01">
+              </div>
+              <div class="form-group">
+                <label for="pat-pay-method">Payment Method</label>
+                <select id="pat-pay-method">
+                  <option value="UPI">UPI (Unified Payments Interface)</option>
+                  <option value="CARD">Credit / Debit Card</option>
+                  <option value="CASH">Cash</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="pat-pay-amount">Amount to Settle ($)</label>
+                <input type="number" id="pat-pay-amount" value="84.00" step="0.01" min="0" required>
+              </div>
             </div>
-            <div class="form-group">
-              <label for="bill-tax-rate">Tax Rate (%)</label>
-              <input type="number" id="bill-tax-rate" value="5" step="0.1" min="0">
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Submit Payment Online</button>
             </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label for="bill-consultation-fee">Consultation Fee ($)</label>
-              <input type="number" id="bill-consultation-fee" value="50.00" step="0.01" min="0">
-            </div>
-            <div class="form-group">
-              <label for="bill-lab-fee">Lab Tests Fee ($)</label>
-              <input type="number" id="bill-lab-fee" value="30.00" step="0.01" min="0">
-            </div>
-            <div class="form-group">
-              <label for="bill-medicine-fee">Medicine Costs ($)</label>
-              <input type="number" id="bill-medicine-fee" value="0.00" step="0.01" min="0">
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label for="bill-payment-method">Payment Method</label>
-              <select id="bill-payment-method">
-                <option value="UPI">UPI (Unified Payments Interface)</option>
-                <option value="CARD">Credit / Debit Card</option>
-                <option value="CASH">Cash</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="bill-amount-paid">Amount Paid ($)</label>
-              <input type="number" id="bill-amount-paid" value="84.00" step="0.01" min="0">
-            </div>
-          </div>
-
-          <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Generate Bill &amp; Process Payment</button>
-            <button type="button" class="btn btn-secondary" onclick="calculateBillPreview()">Calculate Total Preview</button>
-          </div>
-        </form>
+          </form>
+        </div>
 
         <div id="billing-preview-alert" class="alert hidden"></div>
 
@@ -563,9 +623,9 @@
       </div>
     </section>
 
-    <!-- Tab 7: Pharmacy & Medication Inventory -->
-    <section id="tab-pharmacy" class="tab-content">
-      <div class="card">
+    <!-- Tab 7: Pharmacy & Medication Inventory (Pharmacist, Doctor, Admin) -->
+    <section id="tab-pharmacy" class="tab-content" data-roles="PHARMACIST DOCTOR ADMIN">
+      <div class="card" data-roles="PHARMACIST DOCTOR ADMIN">
         <div class="card-header-flex">
           <div>
             <h2>Pharmacy Dispensary Queue</h2>
@@ -597,8 +657,8 @@
         <div id="pharmacy-queue-alert" class="alert hidden"></div>
       </div>
 
-      <!-- Quick Direct Dispense -->
-      <div class="card">
+      <!-- Quick Direct Dispense (Pharmacist & Admin Only) -->
+      <div class="card" data-roles="PHARMACIST ADMIN">
         <h2>Direct Medication Dispense</h2>
         <p class="description">
           Dispense medication units directly. Stock levels decrement automatically and low-stock alerts are triggered when levels drop below minimum safety threshold.
@@ -662,9 +722,9 @@
       </div>
     </section>
 
-    <!-- Tab 8: Security & Compliance Audit Trail -->
-    <section id="tab-audit" class="tab-content">
-      <div class="card">
+    <!-- Tab 8: Security & Compliance Audit Trail (Admin Only) -->
+    <section id="tab-audit" class="tab-content" data-roles="ADMIN">
+      <div class="card" data-roles="ADMIN">
         <div class="card-header-flex">
           <div>
             <h2>Security &amp; Compliance Audit Trail</h2>

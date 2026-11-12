@@ -136,7 +136,7 @@ function handleRoute() {
   if (routeConfig.authRequired && !currentToken) {
     if (guardView) {
       guardView.classList.add('active');
-      if (guardIcon) guardIcon.textContent = '🔒';
+      if (guardIcon) guardIcon.textContent = '[Authentication Required]';
       if (guardTitle) guardTitle.textContent = `Sign In Required: ${routeConfig.title}`;
       if (guardMessage) {
         guardMessage.innerHTML = `You must be logged in to access <strong>${routeConfig.title}</strong>. Please sign in with your hospital account credentials.`;
@@ -158,7 +158,7 @@ function handleRoute() {
   if (routeConfig.roles && currentUser && !routeConfig.roles.includes(currentUser.role)) {
     if (guardView) {
       guardView.classList.add('active');
-      if (guardIcon) guardIcon.textContent = '🚫';
+      if (guardIcon) guardIcon.textContent = '[Access Restricted]';
       if (guardTitle) guardTitle.textContent = `Access Restricted: ${routeConfig.title}`;
       const allowedRolesStr = routeConfig.roles.join(', ');
       if (guardMessage) {
@@ -495,12 +495,119 @@ async function executeLogin(email, password) {
   }
 }
 
+const DEMO_PERSONAS = {
+  DOCTOR: { email: 'doctor.smith@hospital.com', pass: 'HospSecure#2026' },
+  PHARMACIST: { email: 'pharmacist@hospital.com', pass: 'HospSecure#2026' },
+  PATIENT: { email: 'patient.jane@hospital.com', pass: 'HospSecure#2026' },
+  RECEPTIONIST: { email: 'receptionist@hospital.com', pass: 'HospSecure#2026' },
+  ADMIN: { email: 'admin@hospital.com', pass: 'HospSecure#2026' }
+};
+
+async function switchPersona(targetRole) {
+  const creds = DEMO_PERSONAS[targetRole];
+  if (!creds) return;
+  await executeLogin(creds.email, creds.pass);
+}
+
+function applyRoleVisibility() {
+  const role = currentUser ? currentUser.role : null;
+
+  // 1. Filter Navigation Tabs based on role permissions
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  tabBtns.forEach(btn => {
+    const routeHash = btn.getAttribute('data-route') || btn.getAttribute('href');
+    const routeConfig = ROUTES[routeHash];
+    if (!routeConfig) return;
+
+    if (!currentUser) {
+      // Logged out: show only sign-in & register
+      if (routeConfig.authRequired) {
+        btn.classList.add('tab-hidden');
+      } else {
+        btn.classList.remove('tab-hidden');
+      }
+    } else {
+      // Logged in: hide auth tabs (#login, #register for non-admins) and prohibited routes
+      if (routeHash === '#login' || (routeHash === '#register' && role !== 'ADMIN')) {
+        btn.classList.add('tab-hidden');
+      } else if (routeConfig.roles && !routeConfig.roles.includes(role)) {
+        btn.classList.add('tab-hidden');
+      } else {
+        btn.classList.remove('tab-hidden');
+      }
+    }
+  });
+
+  // 2. Filter Component-Level Elements by data-roles attribute
+  const roleProtectedElements = document.querySelectorAll('[data-roles]');
+  roleProtectedElements.forEach(el => {
+    if (!currentUser && el.hasAttribute('data-anonymous')) {
+      el.classList.remove('hidden');
+      return;
+    }
+
+    if (!currentUser) {
+      el.classList.add('hidden');
+      return;
+    }
+
+    const rawRoles = el.getAttribute('data-roles') || '';
+    const allowedRoles = rawRoles.split(/\s+/).filter(Boolean);
+    if (allowedRoles.includes(role) || allowedRoles.includes('*')) {
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  });
+
+  // 3. Filter Elements with data-anonymous (visible only when logged out)
+  const anonElements = document.querySelectorAll('[data-anonymous]:not([data-roles])');
+  anonElements.forEach(el => {
+    if (currentUser) {
+      el.classList.add('hidden');
+    } else {
+      el.classList.remove('hidden');
+    }
+  });
+
+  // 4. Filter Elements with data-authenticated (visible only when logged in)
+  const authElements = document.querySelectorAll('[data-authenticated]');
+  authElements.forEach(el => {
+    if (currentUser) {
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  });
+
+  // 5. Active Session Summary card in Login tab
+  const activeSessionCard = document.getElementById('active-session-card');
+  const activeSessionSummary = document.getElementById('active-session-summary');
+  if (activeSessionCard && activeSessionSummary) {
+    if (currentUser) {
+      activeSessionCard.classList.remove('hidden');
+      activeSessionSummary.innerHTML = `Signed in as <strong>${escapeHtml(currentUser.name)}</strong> (<code>${escapeHtml(currentUser.role)}</code>). You only see options and departmental features granted to your role.`;
+    } else {
+      activeSessionCard.classList.add('hidden');
+    }
+  }
+
+  // 6. Quick Role Switcher in header
+  const switcher = document.getElementById('quick-role-switcher');
+  const demoRoleSelect = document.getElementById('demo-role-select');
+  if (switcher) {
+    switcher.classList.toggle('hidden', !currentUser);
+    if (currentUser && demoRoleSelect) {
+      demoRoleSelect.value = currentUser.role;
+    }
+  }
+}
+
 function updateSessionUI() {
   const badge = document.getElementById('session-badge');
   const headerLogoutBtn = document.getElementById('header-logout-btn');
   const prescriptionsPanel = document.getElementById('patient-prescriptions-panel');
   const accountLinkForm = document.getElementById('patient-account-link-form');
-  const tabBtns = document.querySelectorAll('.tab-btn');
 
   if (currentUser) {
     if (badge) {
@@ -518,46 +625,11 @@ function updateSessionUI() {
     if (headerLogoutBtn) headerLogoutBtn.classList.add('hidden');
   }
 
-  // Update nav tabs for visual access control cues
-  tabBtns.forEach(btn => {
-    const routeHash = btn.getAttribute('data-route') || btn.getAttribute('href');
-    const routeConfig = ROUTES[routeHash];
-    if (!routeConfig) return;
-
-    // Remove existing lock tags if any
-    const existingTag = btn.querySelector('.tab-lock-tag');
-    if (existingTag) existingTag.remove();
-
-    if (!currentUser) {
-      if (routeConfig.authRequired) {
-        btn.classList.add('tab-locked');
-        btn.title = 'Authentication required';
-        const tag = document.createElement('span');
-        tag.className = 'tab-lock-tag';
-        tag.textContent = '🔒';
-        btn.appendChild(tag);
-      } else {
-        btn.classList.remove('tab-locked');
-        btn.title = '';
-      }
-    } else {
-      // User is logged in
-      if (routeConfig.roles && !routeConfig.roles.includes(currentUser.role)) {
-        btn.classList.add('tab-locked');
-        btn.title = `Restricted to: ${routeConfig.roles.join(', ')}`;
-        const tag = document.createElement('span');
-        tag.className = 'tab-lock-tag';
-        tag.textContent = 'Restricted';
-        btn.appendChild(tag);
-      } else {
-        btn.classList.remove('tab-locked');
-        btn.title = '';
-      }
-    }
-  });
+  // Enforce fine-grained role visibility across whole UI
+  applyRoleVisibility();
 
   if (prescriptionsPanel) {
-    const isPatient = currentUser?.role === 'PATIENT';
+    const isPatient = currentUser?.role === 'PATIENT' || currentUser?.role === 'ADMIN';
     prescriptionsPanel.classList.toggle('hidden', !isPatient);
     if (isPatient && currentToken) loadMyPrescriptions();
   }
@@ -1385,6 +1457,54 @@ function loadTCHMS06Demo() {
   calculateBillPreview();
 }
 
+async function handlePatientPayment(e) {
+  e.preventDefault();
+  const patientId = document.getElementById('pat-pay-id').value.trim();
+  const paymentMethod = document.getElementById('pat-pay-method').value;
+  const amountPaid = parseFloat(document.getElementById('pat-pay-amount').value) || 0;
+
+  const alertEl = document.getElementById('billing-preview-alert');
+  const resultCard = document.getElementById('billing-result-card');
+  const display = document.getElementById('billing-display');
+
+  alertEl.className = 'alert info';
+  alertEl.textContent = 'Processing online patient invoice settlement...';
+  alertEl.classList.remove('hidden');
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch('/api/v1/billing/generate', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        patientId,
+        consultationFee: 50.00,
+        labTestFee: 30.00,
+        medicineFee: 0.00,
+        taxRate: 0.05,
+        paymentMethod,
+        amountPaid
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Payment processing failed');
+    }
+
+    alertEl.className = 'alert success';
+    alertEl.textContent = `Online Payment Successful! Invoice ${data.invoiceNumber} paid in full ($${data.totalAmount.toFixed(2)} via ${paymentMethod}). Receipt: ${data.receiptNumber || 'REC-' + Date.now()}.`;
+
+    resultCard.classList.remove('hidden');
+    display.textContent = JSON.stringify(data, null, 2);
+  } catch (err) {
+    alertEl.className = 'alert error';
+    alertEl.textContent = err.message;
+  }
+}
+
 // ─── Pharmacy & Medication Inventory Client Logic (US-13 / TC-HMS-07) ──────────
 
 async function fetchPharmacyQueue() {
@@ -1412,9 +1532,15 @@ async function fetchPharmacyQueue() {
     tbody.innerHTML = queue.map(q => {
       const rxText = (q.prescriptions || []).map(p => `${escapeHtml(p.name || p.medication)} (${p.quantity || 1} units)`).join(', ');
       const isDispensed = q.status === 'DISPENSED';
-      const actionBtn = isDispensed
-        ? '<span class="badge badge-success">Dispensed</span>'
-        : `<button class="btn btn-primary btn-sm" onclick="dispenseFromQueue('${escapeHtml(q.queueId)}')">Dispense</button>`;
+      const canDispense = currentUser && ['PHARMACIST', 'ADMIN'].includes(currentUser.role);
+      let actionBtn = '';
+      if (isDispensed) {
+        actionBtn = '<span class="badge badge-success">Dispensed</span>';
+      } else if (canDispense) {
+        actionBtn = `<button class="btn btn-primary btn-sm" onclick="dispenseFromQueue('${escapeHtml(q.queueId)}')">Dispense</button>`;
+      } else {
+        actionBtn = '<span class="badge badge-secondary">Pending Dispense</span>';
+      }
 
       return `
         <tr>

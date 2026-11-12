@@ -3,6 +3,11 @@
 const db = require('../db');
 
 /**
+ * Canonical system roles recognized across RBAC boundaries (SEC-REQ-1.1 / US-03)
+ */
+const CANONICAL_ROLES = Object.freeze(['ADMIN', 'DOCTOR', 'RECEPTIONIST', 'PHARMACIST', 'PATIENT']);
+
+/**
  * Role-Based Access Control Middleware (FR-AUTH-04 / SEC-REQ-1.1 / US-03)
  * @param {Array<string>} allowedRoles List of roles permitted to access endpoint
  */

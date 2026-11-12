@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const billingService = require('../services/billingService');
+const { generateBillingPdf } = require('../services/billingPdfService');
 const authenticateToken = require('../middleware/auth');
 const requireRole = require('../middleware/rbac');
 const db = require('../db');
@@ -172,7 +173,7 @@ router.post('/pay', authenticateToken, requireRole(['RECEPTIONIST', 'ADMIN', 'PA
  * Retrieve details of an invoice
  * RBAC: Receptionist, Admin, Doctor, Patient
  */
-router.get('/invoices/:invoiceNumber', authenticateToken, requireRole(['RECEPTIONIST', 'ADMIN', 'DOCTOR', 'PATIENT']), (req, res) => {
+const getInvoiceByNumberHandler = (req, res) => {
   try {
     const { invoiceNumber } = req.params;
     const invoice = billingService.getInvoiceByNumber(invoiceNumber);
@@ -209,7 +210,68 @@ router.get('/invoices/:invoiceNumber', authenticateToken, requireRole(['RECEPTIO
       detail: error.message
     });
   }
-});
+};
+
+router.get('/invoices/:invoiceNumber', authenticateToken, requireRole(['RECEPTIONIST', 'ADMIN', 'DOCTOR', 'PATIENT']), getInvoiceByNumberHandler);
+
+/**
+ * GET /api/v1/billing/invoices/:invoiceNumber/pdf & /receipt/pdf & /receipt
+ * Retrieve and generate official PDF receipt for an invoice
+ * RBAC: Receptionist, Admin, Doctor, Patient
+ */
+const getInvoicePdfHandler = async (req, res) => {
+  try {
+    const { invoiceNumber } = req.params;
+    const invoice = billingService.getInvoiceByNumber(invoiceNumber);
+
+    if (!invoice) {
+      return res.status(404).json({
+        type: 'https://hms.hospital.com/errors/not-found',
+        title: 'Resource Not Found',
+        status: 404,
+        detail: `Invoice ${invoiceNumber} was not found.`
+      });
+    }
+
+    // IDOR check for PATIENT
+    if (!verifyPatientInvoiceAccess(req.user, invoice.patientId)) {
+      return res.status(403).json({
+        type: 'https://hms.hospital.com/errors/insufficient-privilege',
+        title: 'Forbidden',
+        status: 403,
+        detail: 'Access denied: You can only view your own invoice receipts.'
+      });
+    }
+
+    const pdf = await generateBillingPdf({
+      invoice,
+      payments: invoice.payments || []
+    });
+
+    const safeId = invoiceNumber.replace(/[^a-zA-Z0-9-]/g, '');
+    const disposition = req.query.download === 'true' ? 'attachment' : 'inline';
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `${disposition}; filename="receipt-${safeId}.pdf"`,
+      'Content-Length': String(pdf.length),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    return res.status(200).send(pdf);
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({
+      type: error.type || 'https://hms.hospital.com/errors/billing-pdf-failed',
+      title: 'Billing Receipt PDF Error',
+      status,
+      detail: error.message
+    });
+  }
+};
+
+router.get('/invoices/:invoiceNumber/pdf', authenticateToken, requireRole(['RECEPTIONIST', 'ADMIN', 'DOCTOR', 'PATIENT']), getInvoicePdfHandler);
+router.get('/invoices/:invoiceNumber/receipt/pdf', authenticateToken, requireRole(['RECEPTIONIST', 'ADMIN', 'DOCTOR', 'PATIENT']), getInvoicePdfHandler);
+router.get('/invoices/:invoiceNumber/receipt', authenticateToken, requireRole(['RECEPTIONIST', 'ADMIN', 'DOCTOR', 'PATIENT']), getInvoicePdfHandler);
 
 /**
  * GET /api/v1/billing/patient/:patientId

@@ -18,17 +18,21 @@ function makeRequest(urlPath, options = {}) {
 
       fetch(url, options)
         .then(async res => {
+          const contentType = res.headers.get('content-type') || '';
           let body = null;
-          try {
-            body = await res.json();
-          } catch {
-            body = null;
+          let buffer = null;
+          if (contentType.includes('application/json')) {
+            try { body = await res.json(); } catch { body = null; }
+          } else {
+            const arrayBuf = await res.arrayBuffer();
+            buffer = Buffer.from(arrayBuf);
           }
           server.close(() => {
             resolve({
               status: res.status,
               headers: res.headers,
-              body
+              body,
+              buffer
             });
           });
         })
@@ -435,6 +439,92 @@ describe('Sprint 2: [US-12 / TC-HMS-06] Calculate Bill and Take Payments (FR-BIL
 
       assert.strictEqual(res.status, 401);
       assert.strictEqual(res.body.title, 'Unauthorized');
+    });
+
+    test('GET /api/v1/billing/invoices/:invoiceNumber/pdf: generates valid PDF receipt with application/pdf header', async () => {
+      const invoice = db.createInvoice({
+        patientId: 'PAT-01',
+        patientName: 'Alice Smith',
+        totalAmount: 84.00,
+        subtotal: 80.00,
+        taxAmount: 4.00,
+        amountPaid: 84.00,
+        balance: 0,
+        status: 'PAID',
+        receiptNumber: 'REC-TEST-001',
+        paymentMethod: 'UPI',
+        lineItems: [
+          { description: 'Physician Consultation Fee', amount: 50.00 },
+          { description: 'Diagnostic Lab Test Fee', amount: 30.00 }
+        ]
+      });
+
+      const res = await makeRequest(`/api/v1/billing/invoices/${invoice.invoiceNumber}/pdf`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${patientAToken}`
+        }
+      });
+
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.headers.get('content-type'), 'application/pdf');
+      assert.ok(res.headers.get('content-disposition').includes('inline'));
+      assert.ok(res.headers.get('content-disposition').includes(`receipt-${invoice.invoiceNumber}.pdf`));
+      assert.ok(Buffer.isBuffer(res.buffer));
+      assert.strictEqual(res.buffer.subarray(0, 4).toString(), '%PDF');
+    });
+
+    test('GET /api/v1/billing/invoices/:invoiceNumber/pdf?download=true: sets attachment disposition for download', async () => {
+      const invoice = db.createInvoice({
+        patientId: 'PAT-01',
+        patientName: 'Alice Smith',
+        totalAmount: 84.00,
+        status: 'PAID',
+        receiptNumber: 'REC-TEST-002'
+      });
+
+      const res = await makeRequest(`/api/v1/billing/invoices/${invoice.invoiceNumber}/pdf?download=true`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${receptionistToken}`
+        }
+      });
+
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.headers.get('content-type'), 'application/pdf');
+      assert.ok(res.headers.get('content-disposition').includes('attachment'));
+      assert.strictEqual(res.buffer.subarray(0, 4).toString(), '%PDF');
+    });
+
+    test('GET /api/v1/billing/invoices/:invoiceNumber/pdf: denies cross-patient access (IDOR protection)', async () => {
+      const invoice = db.createInvoice({
+        patientId: 'PAT-02',
+        totalAmount: 150.00,
+        status: 'PAID'
+      });
+
+      // Patient A tries to access Patient B receipt PDF
+      const res = await makeRequest(`/api/v1/billing/invoices/${invoice.invoiceNumber}/pdf`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${patientAToken}`
+        }
+      });
+
+      assert.strictEqual(res.status, 403);
+      assert.strictEqual(res.body.title, 'Forbidden');
+    });
+
+    test('GET /api/v1/billing/invoices/:invoiceNumber/pdf: returns 404 for non-existent invoice', async () => {
+      const res = await makeRequest('/api/v1/billing/invoices/INV-NONEXISTENT/pdf', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${receptionistToken}`
+        }
+      });
+
+      assert.strictEqual(res.status, 404);
+      assert.strictEqual(res.body.title, 'Resource Not Found');
     });
   });
 });

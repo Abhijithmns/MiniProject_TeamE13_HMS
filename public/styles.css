@@ -607,3 +607,81 @@ pre {
   font-weight: 600;
   margin-top: 0.5rem;
 }
+
+
+/* Patient Billing Receipt & PDF Actions */
+.billing-receipt-card {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: #ffffff;
+  padding: 1.5rem;
+  margin-top: 1.25rem;
+}
+
+.billing-receipt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 1.25rem;
+}
+
+.billing-receipt-header h3 {
+  font-size: 1.15rem;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.receipt-btn-group {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.billing-receipt-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.875rem;
+}
+
+.billing-receipt-meta div strong {
+  color: var(--text-secondary);
+}
+
+.receipt-totals-panel {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border-color);
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+.receipt-totals-table {
+  width: 280px;
+  font-size: 0.9rem;
+}
+
+.receipt-totals-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.2rem 0;
+}
+
+.receipt-totals-row.grand-total {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #124559;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0.4rem 0;
+  margin: 0.35rem 0;
+}

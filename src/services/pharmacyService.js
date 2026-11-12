@@ -2,6 +2,15 @@
 
 const db = require('../db');
 
+/**
+ * Stock health status classifications per FR-PHARM-03 / SRS Section 3.6
+ */
+const STOCK_STATUS = Object.freeze({
+  ADEQUATE: 'ADEQUATE',
+  LOW_STOCK: 'LOW_STOCK',
+  OUT_OF_STOCK: 'OUT_OF_STOCK'
+});
+
 class PharmacyService {
   /**
    * Retrieve live dispensary queue of verified doctor prescriptions (FR-PHARM-01)
@@ -25,11 +34,11 @@ class PharmacyService {
     return items.map(item => {
       const threshold = item.alertThreshold !== undefined ? item.alertThreshold : 10;
       const isLowStock = item.stock < threshold;
-      let stockStatus = 'ADEQUATE';
+      let stockStatus = STOCK_STATUS.ADEQUATE;
       if (item.stock === 0) {
-        stockStatus = 'OUT_OF_STOCK';
+        stockStatus = STOCK_STATUS.OUT_OF_STOCK;
       } else if (isLowStock) {
-        stockStatus = 'LOW_STOCK';
+        stockStatus = STOCK_STATUS.LOW_STOCK;
       }
       return {
         ...item,

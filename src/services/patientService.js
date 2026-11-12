@@ -26,12 +26,25 @@ class PatientService {
   }
 
   /**
+   * Internal defensive helper to sanitize and normalize text input strings.
+   * Guards against leading/trailing whitespace and malformed empty payloads.
+   * @param {*} val - Input string to sanitize
+   * @returns {string} Cleaned string value
+   * @private
+   */
+  _sanitizeString(val) {
+    if (typeof val !== 'string') return '';
+    return val.trim();
+  }
+
+  /**
    * Validates all required fields for patient registration (FR-PAT-01).
    */
   validatePatientInput({ name, dateOfBirth, gender, phone, bloodGroup, emergencyContact }) {
     const errors = [];
 
-    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+    const cleanName = this._sanitizeString(name);
+    if (!cleanName || cleanName.length < 2) {
       errors.push('Full name is required (minimum 2 characters)');
     }
 

@@ -3,6 +3,56 @@
 let currentToken = localStorage.getItem('hms_token') || null;
 let currentUser = JSON.parse(localStorage.getItem('hms_user') || 'null');
 
+// Route Registry & Role Access Policy
+const ROUTES = {
+  '#login': {
+    tabId: 'tab-login',
+    title: 'Sign In',
+    authRequired: false
+  },
+  '#register': {
+    tabId: 'tab-register',
+    title: 'User Registration',
+    authRequired: false
+  },
+  '#portals': {
+    tabId: 'tab-rbac',
+    title: 'Department Portals',
+    authRequired: true,
+    roles: ['PATIENT', 'DOCTOR', 'RECEPTIONIST', 'PHARMACIST', 'ADMIN']
+  },
+  '#appointments': {
+    tabId: 'tab-booking',
+    title: 'Appointments & Scheduling',
+    authRequired: true,
+    roles: ['PATIENT', 'DOCTOR', 'RECEPTIONIST', 'ADMIN']
+  },
+  '#ehr': {
+    tabId: 'tab-ehr',
+    title: 'Consultations & EHR',
+    authRequired: true,
+    roles: ['DOCTOR', 'ADMIN']
+  },
+  '#billing': {
+    tabId: 'tab-billing',
+    title: 'Billing & Payments',
+    authRequired: true,
+    roles: ['RECEPTIONIST', 'ADMIN', 'PATIENT']
+  },
+  '#pharmacy': {
+    tabId: 'tab-pharmacy',
+    title: 'Pharmacy & Dispensary',
+    authRequired: true,
+    roles: ['PHARMACIST', 'ADMIN', 'DOCTOR']
+  },
+  '#audit': {
+    tabId: 'tab-audit',
+    title: 'Security Audit Trail',
+    authRequired: true,
+    roles: ['ADMIN']
+  }
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   setupTabs();
   setupPasswordChecklist();
@@ -10,31 +60,176 @@ document.addEventListener('DOMContentLoaded', () => {
   setupBookingTab();
   setupBillingTab();
   updateSessionUI();
+
+  // Periodic token validity & session expiry check every 30 seconds
+  setInterval(checkSessionExpiry, 30000);
 });
 
-// Tab Navigation
-function setupTabs() {
-  const tabBtns = document.querySelectorAll('.tab-btn');
-  const tabContents = document.querySelectorAll('.tab-content');
+// Check if JWT token is expired or malformed
+function checkSessionExpiry() {
+  if (!currentToken) return false;
 
-  tabBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      tabBtns.forEach(b => b.classList.remove('active'));
-      tabContents.forEach(c => c.classList.remove('active'));
-
-      btn.classList.add('active');
-      const targetId = btn.getAttribute('data-tab');
-      document.getElementById(targetId).classList.add('active');
-
-      if (targetId === 'tab-audit' && currentUser && currentUser.role === 'ADMIN') {
-        fetchAuditLogs();
+  try {
+    const parts = currentToken.split('.');
+    if (parts.length === 3) {
+      const payload = JSON.parse(atob(parts[1]));
+      if (payload.exp && (payload.exp * 1000) < Date.now()) {
+        logoutUser('Your session has expired. Please sign in again.');
+        return true;
       }
-      if (targetId === 'tab-pharmacy') {
-        fetchPharmacyQueue();
-        fetchPharmacyInventory();
+    }
+  } catch (e) {
+    logoutUser('Session verification error. Please sign in again.');
+    return true;
+  }
+  return false;
+}
+
+function getDefaultRouteForRole(role) {
+  switch (role) {
+    case 'DOCTOR': return '#ehr';
+    case 'PHARMACIST': return '#pharmacy';
+    case 'RECEPTIONIST': return '#appointments';
+    case 'ADMIN': return '#audit';
+    case 'PATIENT': return '#portals';
+    default: return '#portals';
+  }
+}
+
+function navigateTo(hash) {
+  if (window.location.hash === hash) {
+    handleRoute();
+  } else {
+    window.location.hash = hash;
+  }
+}
+
+function navigateToDefaultPortal() {
+  if (currentUser) {
+    navigateTo(getDefaultRouteForRole(currentUser.role));
+  } else {
+    navigateTo('#login');
+  }
+}
+
+// Router & Route Guard Handler
+function handleRoute() {
+  if (checkSessionExpiry()) return;
+
+  let currentHash = window.location.hash;
+  if (!currentHash || !ROUTES[currentHash]) {
+    currentHash = currentUser ? getDefaultRouteForRole(currentUser.role) : '#login';
+  }
+
+  const routeConfig = ROUTES[currentHash];
+  const guardView = document.getElementById('route-guard-view');
+  const guardIcon = document.getElementById('guard-icon');
+  const guardTitle = document.getElementById('guard-title');
+  const guardMessage = document.getElementById('guard-message');
+  const guardPrimaryBtn = document.getElementById('guard-primary-btn');
+  const guardSecondaryBtn = document.getElementById('guard-secondary-btn');
+
+  // Hide all tab contents
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+  // 1. Authentication Guard: Feature requires an active session
+  if (routeConfig.authRequired && !currentToken) {
+    if (guardView) {
+      guardView.classList.add('active');
+      if (guardIcon) guardIcon.textContent = '🔒';
+      if (guardTitle) guardTitle.textContent = `Sign In Required: ${routeConfig.title}`;
+      if (guardMessage) {
+        guardMessage.innerHTML = `You must be logged in to access <strong>${routeConfig.title}</strong>. Please sign in with your hospital account credentials.`;
+      }
+      if (guardPrimaryBtn) {
+        guardPrimaryBtn.textContent = 'Sign In to Continue';
+        guardPrimaryBtn.setAttribute('href', '#login');
+      }
+      if (guardSecondaryBtn) {
+        guardSecondaryBtn.textContent = 'Register New Account';
+        guardSecondaryBtn.onclick = () => navigateTo('#register');
+      }
+    }
+    updateNavActive(null);
+    return;
+  }
+
+  // 2. Role-Based Access Guard: Feature requires specific system role
+  if (routeConfig.roles && currentUser && !routeConfig.roles.includes(currentUser.role)) {
+    if (guardView) {
+      guardView.classList.add('active');
+      if (guardIcon) guardIcon.textContent = '🚫';
+      if (guardTitle) guardTitle.textContent = `Access Restricted: ${routeConfig.title}`;
+      const allowedRolesStr = routeConfig.roles.join(', ');
+      if (guardMessage) {
+        guardMessage.innerHTML = `Your account role (<strong>${currentUser.role}</strong>) does not have authorization to access <strong>${routeConfig.title}</strong>.<br><small style="color:var(--text-muted); margin-top:0.5rem; display:inline-block;">Permitted roles: ${allowedRolesStr}</small>`;
+      }
+      if (guardPrimaryBtn) {
+        guardPrimaryBtn.textContent = 'Go to My Permitted Workspace';
+        guardPrimaryBtn.setAttribute('href', getDefaultRouteForRole(currentUser.role));
+      }
+      if (guardSecondaryBtn) {
+        guardSecondaryBtn.textContent = 'Switch Account';
+        guardSecondaryBtn.onclick = () => logoutUser('Please sign in with an authorized account.');
+      }
+    }
+    updateNavActive(null);
+    return;
+  }
+
+  // Hide guard view and activate target tab
+  if (guardView) guardView.classList.remove('active');
+  const targetTab = document.getElementById(routeConfig.tabId);
+  if (targetTab) {
+    targetTab.classList.add('active');
+  }
+
+  updateNavActive(currentHash);
+
+  // Trigger tab-specific initializations
+  if (currentHash === '#audit' && currentUser && currentUser.role === 'ADMIN') {
+    fetchAuditLogs();
+  }
+  if (currentHash === '#pharmacy' && currentUser) {
+    fetchPharmacyQueue();
+    fetchPharmacyInventory();
+  }
+  if (currentHash === '#portals' && currentUser && currentUser.role === 'PATIENT') {
+    loadMyPrescriptions();
+  }
+}
+
+function updateNavActive(activeHash) {
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  tabBtns.forEach(btn => {
+    const route = btn.getAttribute('data-route') || btn.getAttribute('href');
+    if (activeHash && route === activeHash) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+}
+
+// Router Event Listeners
+function setupTabs() {
+  window.addEventListener('hashchange', () => {
+    handleRoute();
+  });
+
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const routeHash = btn.getAttribute('data-route') || btn.getAttribute('href');
+      if (routeHash) {
+        navigateTo(routeHash);
       }
     });
   });
+
+  // Initial route dispatch on load
+  handleRoute();
 }
 
 // Live Password Complexity Checker
@@ -284,10 +479,16 @@ async function executeLogin(email, password) {
 
     const tokenCard = document.getElementById('token-card');
     const tokenDisplay = document.getElementById('token-display');
-    tokenDisplay.textContent = currentToken;
-    tokenCard.classList.remove('hidden');
+    if (tokenDisplay) tokenDisplay.textContent = currentToken;
+    if (tokenCard) tokenCard.classList.remove('hidden');
 
     updateSessionUI();
+
+    // Auto-navigate to user's permitted departmental portal
+    const defaultRoute = getDefaultRouteForRole(currentUser.role);
+    setTimeout(() => {
+      navigateTo(defaultRoute);
+    }, 450);
   } catch (err) {
     alertEl.className = 'alert error';
     alertEl.textContent = err.message;
@@ -296,15 +497,64 @@ async function executeLogin(email, password) {
 
 function updateSessionUI() {
   const badge = document.getElementById('session-badge');
+  const headerLogoutBtn = document.getElementById('header-logout-btn');
   const prescriptionsPanel = document.getElementById('patient-prescriptions-panel');
   const accountLinkForm = document.getElementById('patient-account-link-form');
+  const tabBtns = document.querySelectorAll('.tab-btn');
+
   if (currentUser) {
-    badge.textContent = `${currentUser.name} (${currentUser.role})`;
-    badge.style.background = '#047857';
+    if (badge) {
+      badge.textContent = `${currentUser.name} (${currentUser.role})`;
+      badge.classList.add('logged-in');
+      badge.style.background = '#047857';
+    }
+    if (headerLogoutBtn) headerLogoutBtn.classList.remove('hidden');
   } else {
-    badge.textContent = 'Not Logged In';
-    badge.style.background = '#374151';
+    if (badge) {
+      badge.textContent = 'Not Logged In';
+      badge.classList.remove('logged-in');
+      badge.style.background = '#374151';
+    }
+    if (headerLogoutBtn) headerLogoutBtn.classList.add('hidden');
   }
+
+  // Update nav tabs for visual access control cues
+  tabBtns.forEach(btn => {
+    const routeHash = btn.getAttribute('data-route') || btn.getAttribute('href');
+    const routeConfig = ROUTES[routeHash];
+    if (!routeConfig) return;
+
+    // Remove existing lock tags if any
+    const existingTag = btn.querySelector('.tab-lock-tag');
+    if (existingTag) existingTag.remove();
+
+    if (!currentUser) {
+      if (routeConfig.authRequired) {
+        btn.classList.add('tab-locked');
+        btn.title = 'Authentication required';
+        const tag = document.createElement('span');
+        tag.className = 'tab-lock-tag';
+        tag.textContent = '🔒';
+        btn.appendChild(tag);
+      } else {
+        btn.classList.remove('tab-locked');
+        btn.title = '';
+      }
+    } else {
+      // User is logged in
+      if (routeConfig.roles && !routeConfig.roles.includes(currentUser.role)) {
+        btn.classList.add('tab-locked');
+        btn.title = `Restricted to: ${routeConfig.roles.join(', ')}`;
+        const tag = document.createElement('span');
+        tag.className = 'tab-lock-tag';
+        tag.textContent = 'Restricted';
+        btn.appendChild(tag);
+      } else {
+        btn.classList.remove('tab-locked');
+        btn.title = '';
+      }
+    }
+  });
 
   if (prescriptionsPanel) {
     const isPatient = currentUser?.role === 'PATIENT';
@@ -482,19 +732,23 @@ async function simulateFailedAttempts() {
   }
 }
 
-function logoutUser() {
+function logoutUser(message = 'You have signed out.') {
   currentToken = null;
   currentUser = null;
   localStorage.removeItem('hms_token');
   localStorage.removeItem('hms_user');
   updateSessionUI();
+  navigateTo('#login');
 
   const alertEl = document.getElementById('login-alert');
-  alertEl.className = 'alert info';
-  alertEl.textContent = 'You have logged out.';
-  alertEl.classList.remove('hidden');
+  if (alertEl) {
+    alertEl.className = 'alert info';
+    alertEl.textContent = message;
+    alertEl.classList.remove('hidden');
+  }
 
-  document.getElementById('token-card').classList.add('hidden');
+  const tokenCard = document.getElementById('token-card');
+  if (tokenCard) tokenCard.classList.add('hidden');
 }
 
 async function testPortalAccess(endpoint) {
@@ -740,7 +994,7 @@ function setupBookingTab() {
         document.getElementById('selected-slot-card').classList.add('hidden');
 
         alertEl.className = 'alert success';
-        alertEl.textContent = `Appointment ${data.appointmentId} successfully confirmed! Booking confirmation sent to patient via SMS and Email (FR-APPT-04).`;
+        alertEl.textContent = `Appointment ${data.appointmentId} successfully confirmed! Booking confirmation sent to patient via SMS and Email.`;
 
         confirmCard.classList.remove('hidden');
         confirmDisplay.textContent = JSON.stringify(data.data, null, 2);

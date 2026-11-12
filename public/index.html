@@ -3,42 +3,62 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hospital Management System - Prototype</title>
+  <title>Hospital Management System - Portal</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="app-header">
     <div class="header-container">
-      <div>
-        <h1 class="logo-title">Hospital Management System</h1>
-        <p class="subtitle">Prototype: Authentication, RBAC, Patient Management & EHR Consultations</p>
+      <div class="header-brand">
+        <a href="#login" class="brand-link">
+          <h1 class="logo-title">Hospital Management System</h1>
+          <p class="subtitle">Clinical Operations, Patient Records &amp; Administrative Portal</p>
+        </a>
       </div>
-      <div id="session-badge" class="session-badge">Not Logged In</div>
+      <div class="header-session">
+        <div id="session-badge" class="session-badge">Not Logged In</div>
+        <button id="header-logout-btn" class="btn btn-secondary btn-sm hidden" onclick="logoutUser()">Sign Out</button>
+      </div>
     </div>
   </header>
 
   <main class="main-container">
-    <nav class="nav-tabs">
-      <button class="tab-btn active" data-tab="tab-login">Login & Lockout</button>
-      <button class="tab-btn" data-tab="tab-register">Sign Up (Password Policy)</button>
-      <button class="tab-btn" data-tab="tab-rbac">Role-Based Portals</button>
-      <button class="tab-btn" data-tab="tab-booking">Appointment Booking (FR-APPT-01 & FR-APPT-02)</button>
-      <button class="tab-btn" data-tab="tab-ehr">Doctor Consultation (US-09 & US-10)</button>
-      <button class="tab-btn" data-tab="tab-billing">Billing & Payments (US-12)</button>
-      <button class="tab-btn" data-tab="tab-pharmacy">Pharmacy & Inventory (US-13)</button>
-      <button class="tab-btn" data-tab="tab-audit">Audit Trail (Admin)</button>
+    <nav class="nav-tabs" id="main-nav">
+      <a class="tab-btn active" href="#login" data-tab="tab-login" data-route="#login">Sign In</a>
+      <a class="tab-btn" href="#register" data-tab="tab-register" data-route="#register">User Registration</a>
+      <a class="tab-btn" href="#portals" data-tab="tab-rbac" data-route="#portals">Department Portals</a>
+      <a class="tab-btn" href="#appointments" data-tab="tab-booking" data-route="#appointments">Appointments &amp; Scheduling</a>
+      <a class="tab-btn" href="#ehr" data-tab="tab-ehr" data-route="#ehr">Consultations &amp; EHR</a>
+      <a class="tab-btn" href="#billing" data-tab="tab-billing" data-route="#billing">Billing &amp; Payments</a>
+      <a class="tab-btn" href="#pharmacy" data-tab="tab-pharmacy" data-route="#pharmacy">Pharmacy &amp; Dispensary</a>
+      <a class="tab-btn" href="#audit" data-tab="tab-audit" data-route="#audit">Security Audit Trail</a>
     </nav>
 
-    <!-- Tab 1: Login & Account Lockout Demo -->
+    <!-- Route Guard Notification View (Auth & Role Access Control) -->
+    <section id="route-guard-view" class="tab-content">
+      <div class="card" style="text-align:center; max-width:620px; margin:2rem auto; padding:2.5rem 1.5rem;">
+        <div id="guard-icon" style="font-size:2.5rem; margin-bottom:1rem;">🔒</div>
+        <h2 id="guard-title" style="margin-bottom:0.75rem;">Authentication Required</h2>
+        <p id="guard-message" class="description" style="margin-bottom:1.5rem; font-size:0.95rem;">
+          You must be signed in to access this hospital feature.
+        </p>
+        <div id="guard-actions" style="display:flex; justify-content:center; gap:1rem; flex-wrap:wrap;">
+          <a href="#login" class="btn btn-primary" id="guard-primary-btn">Sign In to Continue</a>
+          <button type="button" class="btn btn-secondary" id="guard-secondary-btn" onclick="navigateToDefaultPortal()">Return to My Workspace</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 1: Account Sign In -->
     <section id="tab-login" class="tab-content active">
       <div class="card">
-        <h2>User Login & Security Policy Demo (US-01 & US-02)</h2>
+        <h2>Account Sign In</h2>
         <p class="description">
-          Demonstrates password authentication, JWT token issuance, and automatic account lockout after 5 consecutive failed login attempts (FR-AUTH-02).
+          Sign in with your registered credentials to access clinical or administrative functions. Accounts are automatically locked after 5 consecutive failed attempts to safeguard patient records.
         </p>
 
         <div class="quick-fill-section">
-          <span class="quick-fill-label">Quick Fill Demo Accounts:</span>
+          <span class="quick-fill-label">Quick Sign In (Demo Roles):</span>
           <button class="btn btn-outline" onclick="quickFill('doctor.smith@hospital.com', 'HospSecure#2026')">Doctor</button>
           <button class="btn btn-outline" onclick="quickFill('pharmacist@hospital.com', 'HospSecure#2026')">Pharmacist</button>
           <button class="btn btn-outline" onclick="quickFill('patient.jane@hospital.com', 'HospSecure#2026')">Patient</button>
@@ -59,7 +79,7 @@
 
           <div class="form-actions">
             <button type="submit" class="btn btn-primary">Sign In</button>
-            <button type="button" class="btn btn-danger" onclick="simulateFailedAttempts()">Simulate 5 Failed Logins (Lockout)</button>
+            <button type="button" class="btn btn-danger" onclick="simulateFailedAttempts()">Test 5 Failed Logins (Lockout)</button>
             <button type="button" class="btn btn-secondary" onclick="logoutUser()">Log Out</button>
           </div>
         </form>
@@ -67,18 +87,18 @@
         <div id="login-alert" class="alert hidden"></div>
 
         <div id="token-card" class="token-container hidden">
-          <h3>Active JWT Token (RFC 7519)</h3>
+          <h3>Active Session Token</h3>
           <pre id="token-display"></pre>
         </div>
       </div>
     </section>
 
-    <!-- Tab 2: User Registration & Password Policy -->
+    <!-- Tab 2: User Registration -->
     <section id="tab-register" class="tab-content">
       <div class="card">
-        <h2>New User Registration (US-01 / FR-AUTH-01)</h2>
+        <h2>New User Registration</h2>
         <p class="description">
-          Enforces NIST SP 800-63B password requirements: at least 8 characters, with uppercase, lowercase, numbers, and special symbols.
+          Register new clinical staff or patient accounts. Enforces strong password complexity to protect medical confidentiality.
         </p>
 
         <form id="register-form">
@@ -126,37 +146,37 @@
       </div>
     </section>
 
-    <!-- Tab 3: Role-Based Portals (RBAC) -->
+    <!-- Tab 3: Department Portals (RBAC) -->
     <section id="tab-rbac" class="tab-content">
       <div class="card">
-        <h2>Role-Based Access Control (RBAC) Verification (US-03 / SEC-REQ-1.1)</h2>
+        <h2>Department Portals &amp; Access Control</h2>
         <p class="description">
-          Tests endpoint boundaries using the current JWT session. Access is granted only if your role matches the portal requirements. Unauthorized attempts return HTTP 403 Forbidden.
+          Access departmental features based on your authenticated role. Unauthorized role attempts are automatically restricted.
         </p>
 
         <div class="rbac-grid">
           <div class="portal-box">
             <h3>Patient Records Portal</h3>
-            <p>Requires: <code>PATIENT</code> or <code>ADMIN</code></p>
-            <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/patient')">Access Patient Portal</button>
+            <p>Access Level: <code>PATIENT</code> or <code>ADMIN</code></p>
+            <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/patient')">Open Patient Portal</button>
           </div>
 
           <div class="portal-box">
             <h3>Doctor Clinical Portal</h3>
-            <p>Requires: <code>DOCTOR</code> or <code>ADMIN</code></p>
-            <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/doctor')">Access Doctor Portal</button>
+            <p>Access Level: <code>DOCTOR</code> or <code>ADMIN</code></p>
+            <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/doctor')">Open Doctor Portal</button>
           </div>
 
           <div class="portal-box">
             <h3>Reception Onboarding Portal</h3>
-            <p>Requires: <code>RECEPTIONIST</code> or <code>ADMIN</code></p>
-            <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/receptionist')">Access Reception Portal</button>
+            <p>Access Level: <code>RECEPTIONIST</code> or <code>ADMIN</code></p>
+            <button class="btn btn-primary" onclick="testPortalAccess('/api/v1/portal/receptionist')">Open Reception Portal</button>
             <div id="patient-account-link-form" class="account-link-form hidden">
-              <h4>Link a Patient Account</h4>
+              <h4>Link a Patient Record</h4>
               <label for="link-patient-mpi">Patient ID (MPI)</label>
               <input id="link-patient-mpi" type="text" placeholder="10-digit patient ID">
               <label for="link-patient-user">Patient User ID</label>
-              <input id="link-patient-user" type="text" placeholder="ID shown after account registration">
+              <input id="link-patient-user" type="text" placeholder="Account User ID">
               <button class="btn btn-secondary" type="button" onclick="linkPatientAccountUI()">Link Account</button>
               <div id="patient-account-link-alert" class="alert hidden"></div>
             </div>
@@ -165,8 +185,8 @@
 
         <div id="patient-prescriptions-panel" class="portal-box hidden" style="margin-top:1rem;">
           <h3>My Digital Prescriptions</h3>
-          <p>View or download verified prescriptions from your patient account. If your list is empty, ask the front desk to link your patient record.</p>
-          <button class="btn btn-primary" type="button" onclick="loadMyPrescriptions()">Refresh My Prescriptions</button>
+          <p>View verified prescriptions issued by your physician. If your list is empty, ask the front desk to link your patient record.</p>
+          <button class="btn btn-primary" type="button" onclick="loadMyPrescriptions()">Refresh Prescriptions</button>
           <div id="prescription-list-status" class="alert info" style="margin-top:1rem;">Loading prescriptions…</div>
           <div id="prescription-list" class="prescription-list"></div>
         </div>
@@ -178,19 +198,19 @@
       </div>
     </section>
 
-    <!-- Tab 3.5: Doctor Working Hours, Booking & Cancellation (FR-APPT-01, FR-APPT-02, FR-APPT-03) -->
+    <!-- Tab 4: Doctor Working Hours, Booking & Cancellation -->
     <section id="tab-booking" class="tab-content">
       <div class="card">
-        <h2>Doctor Availability, Booking & Cancellation (FR-APPT-01, FR-APPT-02, FR-APPT-03)</h2>
+        <h2>Doctor Availability, Appointments &amp; Scheduling</h2>
         <p class="description">
-          Demonstrates doctor working hours configuration with 15-minute slot intervals (FR-APPT-01), temporary slot locking with 5-minute checkout TTL (FR-APPT-02), atomic double-booking prevention under concurrent requests (TC-HMS-04), and automated booking confirmations (FR-APPT-04).
+          Manage physician schedules, search open appointment slots, and reserve visits with automatic slot hold protection.
         </p>
 
         <!-- Doctor Working Hours Configuration -->
         <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-bottom: 2rem;">
-          <h3 style="margin-bottom: 0.5rem;">1. Doctor Sets Working Hours (FR-APPT-01)</h3>
+          <h3 style="margin-bottom: 0.5rem;">1. Configure Doctor Consultation Schedule</h3>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-            Restricted to Doctors & Admins. Configures consultation working hours and automatically partitions time into 15-minute consultation slot intervals.
+            For Doctors and Administrators. Configure consultation working hours to automatically generate available 15-minute consultation slots.
           </p>
 
           <form id="working-hours-form">
@@ -198,8 +218,8 @@
               <div class="form-group" style="flex:1; min-width:180px;">
                 <label for="wh-doctor-id">Doctor</label>
                 <select id="wh-doctor-id">
-                  <option value="USR-DOC-01">Dr. Sarah Smith (USR-DOC-01)</option>
-                  <option value="DOC-401">Dr. Gregory House (DOC-401)</option>
+                  <option value="USR-DOC-01">Dr. Sarah Smith</option>
+                  <option value="DOC-401">Dr. Gregory House</option>
                 </select>
               </div>
               <div class="form-group" style="flex:1; min-width:180px;">
@@ -215,16 +235,16 @@
                 <input type="time" id="wh-end-time" value="12:00" required>
               </div>
               <div class="form-group" style="flex:1; min-width:130px;">
-                <label for="wh-duration">Slot Interval</label>
+                <label for="wh-duration">Slot Duration</label>
                 <select id="wh-duration">
-                  <option value="15" selected>15 Minutes (Standard)</option>
+                  <option value="15" selected>15 Minutes</option>
                   <option value="30">30 Minutes</option>
                 </select>
               </div>
             </div>
 
             <div class="form-actions">
-              <button type="submit" class="btn btn-primary">Configure Working Hours & Generate Slots</button>
+              <button type="submit" class="btn btn-primary">Save Schedule &amp; Generate Slots</button>
             </div>
           </form>
 
@@ -233,17 +253,17 @@
 
         <!-- Patient Slot Booking & Hold -->
         <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-bottom: 2rem;">
-          <h3 style="margin-bottom: 0.5rem;">2. Patient Slot Selection, Temporary Hold & Confirmation (FR-APPT-02)</h3>
+          <h3 style="margin-bottom: 0.5rem;">2. Search &amp; Book Available Slots</h3>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-            Shows ONLY currently available slots. Selecting a slot locks it for 5 minutes during checkout. Confirming dispatches confirmation via SMS and Email.
+            Shows only open slots for the selected doctor. Selecting a slot reserves it for 5 minutes during checkout to prevent duplicate bookings.
           </p>
 
           <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; align-items:flex-end;">
             <div class="form-group" style="flex:1; min-width:200px;">
               <label for="book-doctor-select">Select Doctor</label>
               <select id="book-doctor-select">
-                <option value="USR-DOC-01">Dr. Sarah Smith (USR-DOC-01)</option>
-                <option value="DOC-401">Dr. Gregory House (DOC-401)</option>
+                <option value="USR-DOC-01">Dr. Sarah Smith</option>
+                <option value="DOC-401">Dr. Gregory House</option>
               </select>
             </div>
             <div class="form-group" style="flex:1; min-width:180px;">
@@ -290,7 +310,7 @@
               </div>
 
               <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Confirm Appointment Booking (Atomic Lock)</button>
+                <button type="submit" class="btn btn-primary">Confirm Appointment Booking</button>
               </div>
             </form>
           </div>
@@ -299,41 +319,41 @@
 
           <!-- Confirmation Card -->
           <div id="confirmation-card" class="token-container hidden" style="margin-top:1rem; border-color:#065f46; background-color:#ecfdf5;">
-            <h3 style="color:#065f46; margin-bottom:0.5rem;">Booking Confirmed (Automated Notifications Dispatched)</h3>
+            <h3 style="color:#065f46; margin-bottom:0.5rem;">Booking Confirmed</h3>
             <pre id="confirmation-display"></pre>
           </div>
         </div>
 
-        <!-- Concurrency Double-Booking Simulator (TC-HMS-04) -->
+        <!-- Concurrency Double-Booking Simulator -->
         <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem;">
-          <h3 style="margin-bottom: 0.5rem;">3. Double-Booking Prevention Test (TC-HMS-04 / Concurrency Simulation)</h3>
+          <h3 style="margin-bottom: 0.5rem;">3. Double-Booking Prevention Test</h3>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-            Executes 2 simultaneous booking requests on the EXACT same slot at the same millisecond. Tests race condition isolation: Thread 1 succeeds with 201 Created; Thread 2 is atomically rejected with 409 Conflict ("Slot already booked").
+            Simulates two simultaneous booking requests submitted at the exact same millisecond for the same time slot to verify system concurrency isolation.
           </p>
 
           <div class="form-actions" style="margin-bottom:1rem;">
-            <button type="button" class="btn btn-danger" onclick="runDoubleBookingTest()">Execute Concurrent Double-Booking Race Condition (TC-HMS-04)</button>
+            <button type="button" class="btn btn-danger" onclick="runDoubleBookingTest()">Run Concurrent Booking Test</button>
           </div>
 
           <div id="concurrency-result-grid" class="concurrency-test-grid hidden">
             <div class="concurrency-card" id="thread-1-card">
-              <h4>Thread 1: Patient A (PAT-01)</h4>
+              <h4>Patient A Request</h4>
               <div id="thread-1-status" style="font-weight:700;">Pending...</div>
               <pre id="thread-1-output" style="margin-top:0.5rem; font-size:0.8rem; background:#fff; padding:0.5rem; border:1px solid #e5e7eb; border-radius:4px; max-height:160px; overflow:auto;"></pre>
             </div>
             <div class="concurrency-card" id="thread-2-card">
-              <h4>Thread 2: Patient B (PAT-02)</h4>
+              <h4>Patient B Request</h4>
               <div id="thread-2-status" style="font-weight:700;">Pending...</div>
               <pre id="thread-2-output" style="margin-top:0.5rem; font-size:0.8rem; background:#fff; padding:0.5rem; border:1px solid #e5e7eb; border-radius:4px; max-height:160px; overflow:auto;"></pre>
             </div>
           </div>
         </div>
 
-        <!-- Cancel or Reschedule Appointment (US-08 / FR-APPT-03) -->
+        <!-- Cancel or Reschedule Appointment -->
         <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1.25rem; margin-top: 2rem;">
-          <h3 style="margin-bottom: 0.5rem;">4. Cancel or Reschedule an Appointment (US-08 / FR-APPT-03)</h3>
+          <h3 style="margin-bottom: 0.5rem;">4. Cancel or Reschedule an Appointment</h3>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-            Enforces the 2-hour policy (FR-APPT-03). Allows cancellation or change up to 2 hours before the scheduled time. Immediately releases the slot back to the public pool and updates patient history status to "Cancelled" or "Rescheduled".
+            Appointments can be cancelled or rescheduled up to 2 hours before the scheduled time. Released slots immediately return to the available booking pool.
           </p>
 
           <form id="cancel-reschedule-form">
@@ -343,7 +363,7 @@
                 <input type="text" id="cr-appointment-id" placeholder="e.g. APT-1029" required>
               </div>
               <div class="form-group" style="flex:1; min-width:200px;">
-                <label for="cr-new-slot-id">New Slot ID (for Rescheduling only)</label>
+                <label for="cr-new-slot-id">New Slot ID (for Rescheduling)</label>
                 <input type="text" id="cr-new-slot-id" placeholder="e.g. SLOT-2002">
               </div>
               <div class="form-group" style="flex:2; min-width:260px;">
@@ -367,12 +387,12 @@
       </div>
     </section>
 
-    <!-- Tab 4: Doctor Consultation & Lockout (US-09 & US-10) -->
+    <!-- Tab 5: Doctor Consultation & EHR -->
     <section id="tab-ehr" class="tab-content">
       <div class="card">
-        <h2>Doctor Records Visit Notes, Vitals & Prescriptions (US-09 / FR-EHR-01, FR-EHR-02)</h2>
+        <h2>Clinical Consultations &amp; Electronic Health Records</h2>
         <p class="description">
-          Restricted to Doctors & Admins. Captures chief symptoms, objective vitals, clinical diagnosis, and prescribed medicines with SHA-256 digital signature hash.
+          Restricted to Doctors and Administrators. Record chief complaints, vitals, clinical diagnoses, and issue tamper-evident digital prescriptions.
         </p>
 
         <form id="ehr-form">
@@ -432,21 +452,21 @@
           </div>
 
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Save Consultation & Issue Prescription</button>
+            <button type="submit" class="btn btn-primary">Save Consultation &amp; Issue Prescription</button>
           </div>
         </form>
 
         <div id="ehr-alert" class="alert hidden"></div>
         <div id="ehr-result" class="token-container hidden">
-          <h3>Saved Consultation Record (Digital Verification)</h3>
+          <h3>Saved Consultation Record</h3>
           <pre id="ehr-display"></pre>
         </div>
 
         <hr style="margin: 2rem 0; border: 0; border-top: 1px solid #e5e7eb;">
 
-        <h2>Append Medical Addendum (After 24 Hours / US-10)</h2>
+        <h2>Append Medical Addendum</h2>
         <p class="description">
-          Clinical notes lock permanently after 24 hours (FR-EHR-03). Direct edits are rejected, and subsequent notes must be submitted as a signed, timestamped addendum.
+          Clinical consultation notes lock 24 hours after entry. Direct alterations are prohibited; any further medical updates must be appended as a signed, timestamped addendum.
         </p>
 
         <form id="addendum-form">
@@ -458,10 +478,10 @@
           </div>
           <div class="form-group">
             <label for="addendum-note">Addendum Details *</label>
-            <textarea id="addendum-note" rows="2" required placeholder="e.g. Patient follow-up: Fever fully resolved. No adverse drug reaction observed."></textarea>
+            <textarea id="addendum-note" rows="2" required placeholder="e.g. Patient follow-up: Symptoms fully resolved. No adverse reaction observed."></textarea>
           </div>
           <div class="form-actions">
-            <button type="submit" class="btn btn-secondary">Append Addendum (FR-EHR-03)</button>
+            <button type="submit" class="btn btn-secondary">Append Addendum to Consultation</button>
           </div>
         </form>
 
@@ -473,23 +493,23 @@
       </div>
     </section>
 
-    <!-- Tab: Billing & Payments (US-12 / FR-BILL-01, FR-BILL-02, FR-BILL-03) -->
+    <!-- Tab 6: Billing & Payments -->
     <section id="tab-billing" class="tab-content">
       <div class="card">
-        <h2>Billing & Payment Processing (US-12 / TC-HMS-06)</h2>
+        <h2>Patient Billing &amp; Payment Processing</h2>
         <p class="description">
-          Aggregates physician consultation fees, lab diagnostic tests, and medicine costs into a consolidated bill with 5% tax. Supports payment recording via Cash, Card, and UPI, generates unique invoices, and issues official receipts.
+          Consolidates physician consultation fees, laboratory diagnostic tests, and medication costs into a single invoice with 5% tax. Supports Cash, Card, and UPI payments and issues official receipts.
         </p>
 
         <div class="quick-fill-section">
-          <span class="quick-fill-label">Pre-configured Scenario:</span>
-          <button type="button" class="btn btn-outline" onclick="loadTCHMS06Demo()">Load TC-HMS-06: $50 Consultation + $30 Lab + 5% Tax via UPI</button>
+          <span class="quick-fill-label">Quick Calculation:</span>
+          <button type="button" class="btn btn-outline" onclick="loadTCHMS06Demo()">Load Standard Visit Preset ($50 Consultation + $30 Lab + 5% Tax)</button>
         </div>
 
         <form id="billing-form">
           <div class="form-row">
             <div class="form-group">
-              <label for="bill-patient-id">Patient MPI ID *</label>
+              <label for="bill-patient-id">Patient ID *</label>
               <input type="text" id="bill-patient-id" required placeholder="e.g. 1000000001 or PAT-01">
             </div>
             <div class="form-group">
@@ -515,7 +535,7 @@
 
           <div class="form-row">
             <div class="form-group">
-              <label for="bill-payment-method">Payment Method (FR-BILL-02)</label>
+              <label for="bill-payment-method">Payment Method</label>
               <select id="bill-payment-method">
                 <option value="UPI">UPI (Unified Payments Interface)</option>
                 <option value="CARD">Credit / Debit Card</option>
@@ -529,7 +549,7 @@
           </div>
 
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Generate Bill & Process Payment</button>
+            <button type="submit" class="btn btn-primary">Generate Bill &amp; Process Payment</button>
             <button type="button" class="btn btn-secondary" onclick="calculateBillPreview()">Calculate Total Preview</button>
           </div>
         </form>
@@ -537,19 +557,19 @@
         <div id="billing-preview-alert" class="alert hidden"></div>
 
         <div id="billing-result-card" class="token-container hidden">
-          <h3>Generated Invoice & Official Receipt (FR-BILL-03)</h3>
+          <h3>Generated Invoice &amp; Official Receipt</h3>
           <pre id="billing-display"></pre>
         </div>
       </div>
     </section>
 
-    <!-- Tab: Pharmacy & Medication Inventory (US-13 / TC-HMS-07) -->
+    <!-- Tab 7: Pharmacy & Medication Inventory -->
     <section id="tab-pharmacy" class="tab-content">
       <div class="card">
         <div class="card-header-flex">
           <div>
-            <h2>Pharmacy Dispensary Queue (FR-PHARM-01)</h2>
-            <p class="description">Live queue of digital prescriptions issued by doctors awaiting fulfillment.</p>
+            <h2>Pharmacy Dispensary Queue</h2>
+            <p class="description">Live queue of verified digital prescriptions issued by physicians awaiting dispensing.</p>
           </div>
           <button class="btn btn-outline" onclick="fetchPharmacyQueue()">Refresh Queue</button>
         </div>
@@ -577,11 +597,11 @@
         <div id="pharmacy-queue-alert" class="alert hidden"></div>
       </div>
 
-      <!-- Quick Direct Dispense (TC-HMS-07 step 2) -->
+      <!-- Quick Direct Dispense -->
       <div class="card">
-        <h2>Direct Medication Dispense & Stock Decrement (TC-HMS-07)</h2>
+        <h2>Direct Medication Dispense</h2>
         <p class="description">
-          Demonstrates TC-HMS-07: Dispense units of a medication (e.g. MED-012 "Paracetamol 500mg"). Stock automatically decrements and triggers low-stock alert when below threshold.
+          Dispense medication units directly. Stock levels decrement automatically and low-stock alerts are triggered when levels drop below minimum safety threshold.
         </p>
         <form id="dispense-direct-form" onsubmit="handleDirectDispense(event)">
           <div class="form-row">
@@ -595,7 +615,7 @@
             </div>
           </div>
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Dispense & Decrement Stock</button>
+            <button type="submit" class="btn btn-primary">Dispense &amp; Decrement Stock</button>
           </div>
         </form>
         <div id="dispense-direct-alert" class="alert hidden"></div>
@@ -605,7 +625,7 @@
       <div class="card">
         <div class="card-header-flex">
           <div>
-            <h2>Medication Stock Inventory (FR-PHARM-02, FR-PHARM-03)</h2>
+            <h2>Medication Stock Inventory</h2>
             <p class="description">Real-time inventory levels, reorder thresholds, and low-stock warnings.</p>
           </div>
           <div>
@@ -636,29 +656,29 @@
         </div>
         <div id="pharmacy-inventory-alert" class="alert hidden"></div>
         <div id="pharmacy-alerts-container" class="token-container hidden">
-          <h3>Active Low-Stock Alerts (FR-PHARM-03)</h3>
+          <h3>Active Low-Stock Alerts</h3>
           <pre id="pharmacy-alerts-display"></pre>
         </div>
       </div>
     </section>
 
-    <!-- Tab: Immutable Audit Trail (US-14 / SEC-REQ-2.1) -->
+    <!-- Tab 8: Security & Compliance Audit Trail -->
     <section id="tab-audit" class="tab-content">
       <div class="card">
         <div class="card-header-flex">
           <div>
-            <h2>Immutable Audit Trail (US-14 / SEC-REQ-2.1)</h2>
+            <h2>Security &amp; Compliance Audit Trail</h2>
             <p class="description">
-              Records user ID, date & time, patient ID, and action taken for all medical record access, authentication events, and authorization checks (SEC-REQ-2.1). Logs are strictly append-only and cannot be altered or deleted.
+              Tamper-evident, immutable audit trail recording all patient record lookups, authentication events, and authorization outcomes for hospital security and regulatory compliance.
             </p>
           </div>
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
             <button class="btn btn-outline" onclick="fetchAuditLogs()">Refresh Audit Trail</button>
-            <button class="btn btn-secondary" onclick="simulateMedicalRecordDownload()">Simulate Record Download</button>
+            <button class="btn btn-secondary" onclick="simulateMedicalRecordDownload()">Simulate Record Access</button>
           </div>
         </div>
 
-        <!-- Security Review Filter Controls (US-14 / Acceptance Criteria 3) -->
+        <!-- Security Review Filter Controls -->
         <div style="background-color: #f9fafb; border: 1px solid var(--border-color); border-radius: 6px; padding: 1rem; margin-bottom: 1.25rem;">
           <h3 style="margin-bottom: 0.5rem; font-size: 0.95rem;">Security Review Log Filters</h3>
           <div class="form-row" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
@@ -717,8 +737,8 @@
 
   <footer class="app-footer">
     <div class="footer-container">
-      <span>Hospital Management System - Team E13</span>
-      <span>Sprint 2 Deliverable: Automated PRs, Commits & Verification</span>
+      <span>Hospital Management System &mdash; Clinical &amp; Administrative Portal</span>
+      <span>Enterprise Health Records &amp; Hospital Operations</span>
     </div>
   </footer>
 

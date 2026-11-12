@@ -740,7 +740,7 @@ function setupBookingTab() {
         document.getElementById('selected-slot-card').classList.add('hidden');
 
         alertEl.className = 'alert success';
-        alertEl.textContent = `Appointment ${data.appointmentId} successfully confirmed! Booking confirmation sent to patient via SMS and Email (FR-APPT-04).`;
+        alertEl.textContent = `Appointment ${data.appointmentId} successfully confirmed! Booking confirmation sent to patient via SMS and Email.`;
 
         confirmCard.classList.remove('hidden');
         confirmDisplay.textContent = JSON.stringify(data.data, null, 2);

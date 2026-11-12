@@ -383,7 +383,43 @@ function setupForms() {
         alertEl.className = 'alert success';
         alertEl.textContent = `Consultation recorded successfully (${data.data.consultationId}). Prescriptions dispatched to Pharmacy Queue.`;
 
-        displayEl.textContent = JSON.stringify(data.data, null, 2);
+        const c = data.data || {};
+        const vitals = c.vitals || {};
+        const rx = Array.isArray(c.prescriptions) ? c.prescriptions : [];
+
+        displayEl.innerHTML = `
+          <div style="background:#ffffff; border:1px solid var(--border-color); border-radius:6px; padding:1.25rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; border-bottom:1px solid var(--border-color); padding-bottom:0.75rem;">
+              <div>
+                <h4 style="margin:0; color:var(--text-primary); font-size:1.1rem;">Consultation Record</h4>
+                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">ID: <code>${escapeHtml(c.consultationId || 'N/A')}</code></div>
+              </div>
+              <span class="badge badge-success">RECORDED</span>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:0.75rem; font-size:0.875rem; margin-bottom:1rem;">
+              <div><strong>Patient ID:</strong> <code>${escapeHtml(c.patientId || 'N/A')}</code></div>
+              <div><strong>Physician:</strong> Dr. ${escapeHtml(c.doctorName || 'Attending Physician')}</div>
+              <div style="grid-column:1 / -1;"><strong>Diagnosis:</strong> ${escapeHtml(c.diagnosis || 'Clinical evaluation')}</div>
+            </div>
+            <div style="background:#f8fafc; border:1px solid var(--border-color); border-radius:4px; padding:0.75rem; margin-bottom:1rem; font-size:0.85rem;">
+              <strong>Recorded Vitals:</strong>
+              <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-top:0.25rem;">
+                <span>BP: <strong>${escapeHtml(vitals.bloodPressure || 'N/A')}</strong></span>
+                <span>Pulse: <strong>${escapeHtml(String(vitals.pulse || 'N/A'))} bpm</strong></span>
+                <span>Temp: <strong>${escapeHtml(String(vitals.temperature || 'N/A'))} °F</strong></span>
+                <span>SpO2: <strong>${escapeHtml(String(vitals.spo2 || 'N/A'))}%</strong></span>
+              </div>
+            </div>
+            ${rx.length > 0 ? `
+              <div style="font-size:0.85rem;">
+                <strong>Digital Prescriptions Dispatched to Dispensary:</strong>
+                <ul style="margin:0.35rem 0 0 1.25rem; padding:0;">
+                  ${rx.map(item => `<li><strong>${escapeHtml(item.name)}</strong>: ${escapeHtml(item.dosage || '')} (${escapeHtml(item.frequency || '')})</li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
+          </div>
+        `;
         resultBox.classList.remove('hidden');
         ehrForm.reset();
       } catch (err) {
@@ -435,7 +471,25 @@ function setupForms() {
         alertEl.className = 'alert success';
         alertEl.textContent = `Addendum ${data.data.addendum.addendumId} appended permanently to ${consultationId} by Dr. ${data.data.addendum.doctorName}.`;
 
-        displayEl.textContent = JSON.stringify(data.data, null, 2);
+        const add = data.data?.addendum || data.data || {};
+        displayEl.innerHTML = `
+          <div style="background:#ffffff; border:1px solid var(--border-color); border-radius:6px; padding:1.25rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+              <div>
+                <h4 style="margin:0; color:var(--text-primary);">Medical Addendum Appended</h4>
+                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">Addendum ID: <code>${escapeHtml(add.addendumId || 'ADD')}</code> | Consultation: <code>${escapeHtml(consultationId)}</code></div>
+              </div>
+              <span class="badge badge-info">SIGNED</span>
+            </div>
+            <div style="font-size:0.875rem; margin-bottom:0.75rem;">
+              <strong>Attending Doctor:</strong> Dr. ${escapeHtml(add.doctorName || 'Physician')} &bull; <strong>Timestamp:</strong> ${escapeHtml(add.createdAt ? new Date(add.createdAt).toLocaleString() : new Date().toLocaleString())}
+            </div>
+            <div style="background:#f9fafb; border-left:3px solid var(--accent); padding:0.75rem; font-size:0.875rem; border-radius:0 4px 4px 0;">
+              <strong>Clinical Addendum Note:</strong>
+              <div style="margin-top:0.25rem; font-style:italic;">"${escapeHtml(add.note || note)}"</div>
+            </div>
+          </div>
+        `;
         resultBox.classList.remove('hidden');
         addendumForm.reset();
       } catch (err) {
@@ -479,7 +533,18 @@ async function executeLogin(email, password) {
 
     const tokenCard = document.getElementById('token-card');
     const tokenDisplay = document.getElementById('token-display');
-    if (tokenDisplay) tokenDisplay.textContent = currentToken;
+    if (tokenDisplay) {
+      tokenDisplay.innerHTML = `
+        <div style="background:#ffffff; border:1px solid var(--border-color); border-radius:6px; padding:1rem; font-size:0.875rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+            <div><strong>${escapeHtml(currentUser.name)}</strong> (ID: <code>${escapeHtml(currentUser.id)}</code>)</div>
+            <span class="badge badge-success">${escapeHtml(currentUser.role)}</span>
+          </div>
+          <div><strong>Email:</strong> ${escapeHtml(currentUser.email)}</div>
+          <div style="margin-top:0.5rem; font-size:0.8rem; color:var(--text-muted);">Session Status: Active (Cryptographically Signed Token)</div>
+        </div>
+      `;
+    }
     if (tokenCard) tokenCard.classList.remove('hidden');
 
     updateSessionUI();
@@ -843,21 +908,35 @@ async function testPortalAccess(endpoint) {
 
     if (!res.ok) {
       resultBox.style.borderLeft = '4px solid #ef4444';
-      resultJson.textContent = JSON.stringify({
-        httpStatus: res.status,
-        statusText: res.statusText,
-        errorPayload: data
-      }, null, 2);
+      resultJson.innerHTML = `
+        <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:4px; padding:0.85rem; font-size:0.875rem; color:#991b1b;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.25rem;">
+            <strong>HTTP ${res.status} ${escapeHtml(res.statusText || 'Access Denied')}</strong>
+            <span class="badge badge-danger">RESTRICTED</span>
+          </div>
+          <div>${escapeHtml(data.detail || data.title || data.message || 'Unauthorized role access')}</div>
+        </div>
+      `;
     } else {
       resultBox.style.borderLeft = '4px solid #10b981';
-      resultJson.textContent = JSON.stringify({
-        httpStatus: res.status,
-        responsePayload: data
-      }, null, 2);
+      resultJson.innerHTML = `
+        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:4px; padding:0.85rem; font-size:0.875rem; color:#166534;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.25rem;">
+            <strong>HTTP 200 OK - Access Granted</strong>
+            <span class="badge badge-success">AUTHORIZED</span>
+          </div>
+          <div>${escapeHtml(data.message || 'Access to departmental resources successfully authorized.')}</div>
+          ${data.role ? `<div style="margin-top:0.25rem; font-size:0.8rem; color:#15803d;">Validated Role Permission: <strong>${escapeHtml(data.role)}</strong></div>` : ''}
+        </div>
+      `;
     }
   } catch (err) {
     resultBox.style.borderLeft = '4px solid #ef4444';
-    resultJson.textContent = `Network / Execution Error: ${err.message}`;
+    resultJson.innerHTML = `
+      <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:4px; padding:0.85rem; font-size:0.875rem; color:#991b1b;">
+        <strong>Network Error:</strong> ${escapeHtml(err.message)}
+      </div>
+    `;
   }
 }
 
@@ -1068,8 +1147,35 @@ function setupBookingTab() {
         alertEl.className = 'alert success';
         alertEl.textContent = `Appointment ${data.appointmentId} successfully confirmed! Booking confirmation sent to patient via SMS and Email.`;
 
+        const appt = data.data?.appointment || data.data || {};
+        const conf = data.data?.confirmation || {};
+        const slot = data.data?.slot || {};
+
         confirmCard.classList.remove('hidden');
-        confirmDisplay.textContent = JSON.stringify(data.data, null, 2);
+        confirmDisplay.innerHTML = `
+          <div style="background:#ffffff; border:1px solid #10b981; border-radius:6px; padding:1.25rem; color:#111827;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; border-bottom:1px solid #e5e7eb; padding-bottom:0.75rem;">
+              <div>
+                <h4 style="margin:0; font-size:1.15rem; color:#065f46;">Appointment Confirmed</h4>
+                <div style="font-size:0.85rem; color:#6b7280; margin-top:0.25rem;">Reference ID: <code>${escapeHtml(appt.appointmentId || data.appointmentId || 'N/A')}</code></div>
+              </div>
+              <span class="badge badge-success">${escapeHtml(appt.status || data.status || 'CONFIRMED')}</span>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.75rem; font-size:0.9rem; margin-bottom:1rem;">
+              <div><strong>Doctor:</strong> ${escapeHtml(appt.doctorName || slot.doctorName || 'Assigned Physician')}</div>
+              <div><strong>Patient:</strong> ${escapeHtml(appt.patientName || 'Patient')} (<code>${escapeHtml(appt.patientId || 'N/A')}</code>)</div>
+              <div><strong>Scheduled Time:</strong> ${escapeHtml(appt.slotTime || slot.slotTime || 'Confirmed')}</div>
+              <div><strong>Slot ID:</strong> <code>${escapeHtml(appt.slotId || slot.slotId || 'N/A')}</code></div>
+              <div style="grid-column:1 / -1;"><strong>Reason for Visit:</strong> ${escapeHtml(appt.reasonForVisit || 'General Clinical Consultation')}</div>
+            </div>
+            <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:4px; padding:0.75rem; font-size:0.85rem; color:#166534;">
+              <strong>Automated Booking Notifications Dispatched:</strong>
+              <div style="margin-top:0.25rem;">Delivery Channels: <strong>${escapeHtml((conf.channels || ['EMAIL', 'SMS']).join(', '))}</strong></div>
+              <div>Recipient: ${escapeHtml(conf.recipientEmail || 'Email on file')} &bull; ${escapeHtml(conf.recipientPhone || 'Phone on file')}</div>
+              <div>Dispatch Confirmation: <code>${escapeHtml(conf.confirmationId || 'DISPATCHED')}</code></div>
+            </div>
+          </div>
+        `;
 
         loadAvailableSlots();
       } catch (err) {
@@ -1267,7 +1373,6 @@ async function runDoubleBookingTest() {
     t1Status.textContent = `${resA.status} Conflict (REJECTED: Slot Already Booked)`;
     t1Status.style.color = '#991b1b';
   }
-  t1Output.textContent = JSON.stringify(resA.body, null, 2);
 
   // Display Thread 2
   if (resB.status === 201) {
@@ -1277,7 +1382,31 @@ async function runDoubleBookingTest() {
     t2Status.textContent = `${resB.status} Conflict (REJECTED: Slot Already Booked)`;
     t2Status.style.color = '#991b1b';
   }
-  t2Output.textContent = JSON.stringify(resB.body, null, 2);
+
+  const renderThreadCard = (res, name) => {
+    if (res.status === 201) {
+      const appt = res.body?.data?.appointment || res.body?.appointment || {};
+      return `
+        <div style="font-size:0.85rem; color:#065f46;">
+          <div><strong>Outcome:</strong> 201 Created (Confirmed)</div>
+          <div><strong>Appointment ID:</strong> <code>${escapeHtml(appt.appointmentId || res.body?.appointmentId || 'APT')}</code></div>
+          <div><strong>Reserved By:</strong> ${escapeHtml(name)}</div>
+          <div><strong>Slot ID:</strong> <code>${escapeHtml(appt.slotId || testSlotId)}</code></div>
+          <div style="margin-top:0.35rem; color:#047857;">Isolated transaction succeeded.</div>
+        </div>
+      `;
+    }
+    return `
+      <div style="font-size:0.85rem; color:#991b1b;">
+        <div><strong>Outcome:</strong> ${res.status} Conflict (Rejected)</div>
+        <div><strong>Error:</strong> ${escapeHtml(res.body?.detail || res.body?.message || 'Slot already booked')}</div>
+        <div style="margin-top:0.35rem; color:#b91c1c;">Atomic mutex prevented double-booking.</div>
+      </div>
+    `;
+  };
+
+  t1Output.innerHTML = renderThreadCard(resA, 'Patient A');
+  t2Output.innerHTML = renderThreadCard(resB, 'Patient B');
 
   loadAvailableSlots();
 }
@@ -1317,7 +1446,20 @@ async function cancelAppointmentUI() {
     alertEl.className = 'alert success';
     alertEl.textContent = `Appointment ${apptId} successfully CANCELLED. Slot ${data.data.releasedSlotId} immediately released back to the available pool.`;
     resultCard.classList.remove('hidden');
-    display.textContent = JSON.stringify(data.data, null, 2);
+    display.innerHTML = `
+      <div style="background:#ffffff; border:1px solid var(--border-color); border-radius:6px; padding:1.25rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+          <h4 style="margin:0; color:#dc2626;">Appointment Cancelled</h4>
+          <span class="badge badge-danger">CANCELLED</span>
+        </div>
+        <div style="font-size:0.875rem; display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:0.5rem;">
+          <div><strong>Appointment ID:</strong> <code>${escapeHtml(apptId)}</code></div>
+          <div><strong>Released Slot ID:</strong> <code>${escapeHtml(data.data?.releasedSlotId || 'N/A')}</code></div>
+          <div><strong>Pool Status:</strong> Restored to available booking slots</div>
+          ${reason ? `<div style="grid-column:1/-1;"><strong>Cancellation Reason:</strong> ${escapeHtml(reason)}</div>` : ''}
+        </div>
+      </div>
+    `;
 
     loadAvailableSlots();
   } catch (err) {
@@ -1361,7 +1503,21 @@ async function rescheduleAppointmentUI() {
     alertEl.className = 'alert success';
     alertEl.textContent = `Appointment ${apptId} successfully RESCHEDULED to slot ${data.data.newSlotId} (${data.data.newSlotTime}). Old slot ${data.data.releasedSlotId} released.`;
     resultCard.classList.remove('hidden');
-    display.textContent = JSON.stringify(data.data, null, 2);
+    display.innerHTML = `
+      <div style="background:#ffffff; border:1px solid var(--border-color); border-radius:6px; padding:1.25rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+          <h4 style="margin:0; color:#0284c7;">Appointment Rescheduled</h4>
+          <span class="badge badge-success">RESCHEDULED</span>
+        </div>
+        <div style="font-size:0.875rem; display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:0.5rem;">
+          <div><strong>Appointment ID:</strong> <code>${escapeHtml(apptId)}</code></div>
+          <div><strong>New Slot ID:</strong> <code>${escapeHtml(data.data?.newSlotId || newSlotId)}</code></div>
+          <div><strong>New Slot Time:</strong> ${escapeHtml(data.data?.newSlotTime || 'Confirmed')}</div>
+          <div><strong>Released Slot ID:</strong> <code>${escapeHtml(data.data?.releasedSlotId || 'N/A')}</code></div>
+          ${reason ? `<div style="grid-column:1/-1;"><strong>Reason:</strong> ${escapeHtml(reason)}</div>` : ''}
+        </div>
+      </div>
+    `;
 
     loadAvailableSlots();
   } catch (err) {
@@ -1431,6 +1587,10 @@ function setupBillingTab() {
 
 
 async function openBillingReceiptPdf(invoiceNumber, download) {
+  if (!invoiceNumber) {
+    alert('Invoice number is missing.');
+    return;
+  }
   const viewer = download ? null : window.open('about:blank', '_blank');
   try {
     const headers = {};
@@ -1444,7 +1604,8 @@ async function openBillingReceiptPdf(invoiceNumber, download) {
       throw new Error(errData.detail || errData.message || `Failed to load receipt PDF (${response.status})`);
     }
 
-    const pdfUrl = URL.createObjectURL(await response.blob());
+    const blob = await response.blob();
+    const pdfUrl = URL.createObjectURL(blob);
     if (download) {
       const link = document.createElement('a');
       link.href = pdfUrl;
@@ -1454,20 +1615,72 @@ async function openBillingReceiptPdf(invoiceNumber, download) {
       link.remove();
     } else if (viewer) {
       viewer.location.href = pdfUrl;
+    } else {
+      const link = document.createElement('a');
+      link.href = pdfUrl;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     }
+    setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000);
   } catch (err) {
     if (viewer) viewer.close();
     alert(`Could not open receipt PDF: ${err.message}`);
   }
 }
 
+async function lookupAndDownloadReceipt(download) {
+  const input = document.getElementById('lookup-invoice-number');
+  const alertEl = document.getElementById('lookup-receipt-alert');
+  if (!input) return;
+
+  const invoiceNumber = input.value.trim();
+  if (!invoiceNumber) {
+    if (alertEl) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = 'Please enter an invoice number to download the receipt.';
+      alertEl.classList.remove('hidden');
+    }
+    return;
+  }
+
+  if (alertEl) {
+    alertEl.className = 'alert info';
+    alertEl.textContent = `Locating invoice ${invoiceNumber} and generating official PDF receipt...`;
+    alertEl.classList.remove('hidden');
+  }
+
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const invoiceRes = await fetch(`/api/v1/billing/invoices/${encodeURIComponent(invoiceNumber)}`, { headers });
+    const invoiceJson = await invoiceRes.json();
+    if (!invoiceRes.ok) {
+      throw new Error(invoiceJson.detail || invoiceJson.message || `Invoice ${invoiceNumber} not found.`);
+    }
+
+    renderBillingReceipt(invoiceJson);
+    await openBillingReceiptPdf(invoiceNumber, download);
+
+    if (alertEl) {
+      alertEl.className = 'alert success';
+      alertEl.textContent = `Official PDF Receipt for Invoice ${invoiceNumber} retrieved successfully.`;
+    }
+  } catch (err) {
+    if (alertEl) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = err.message;
+      alertEl.classList.remove('hidden');
+    }
+  }
+}
+
 function renderBillingReceipt(data) {
   const resultCard = document.getElementById('billing-result-card');
   const receiptContent = document.getElementById('billing-receipt-content');
-  const display = document.getElementById('billing-display');
-  if (display) {
-    display.textContent = JSON.stringify(data, null, 2);
-  }
 
   const invoice = data.data?.invoice || data.invoice || data;
   const receipt = data.data?.receipt || data.receipt;
@@ -1646,15 +1859,103 @@ async function handlePatientPayment(e) {
     }
 
     alertEl.className = 'alert success';
-    alertEl.textContent = `Online Payment Successful! Invoice ${data.invoiceNumber} paid in full ($${data.totalAmount.toFixed(2)} via ${paymentMethod}). Receipt: ${data.receiptNumber || 'REC-' + Date.now()}.`;
+    alertEl.textContent = `Online Payment Successful! Invoice ${data.invoiceNumber} paid in full ($${data.totalAmount.toFixed(2)} via ${paymentMethod}). Receipt: ${data.receiptNumber || 'REC-' + Date.now()}. PDF Receipt downloaded below.`;
 
-    resultCard.classList.remove('hidden');
-    display.textContent = JSON.stringify(data, null, 2);
+    renderBillingReceipt(data);
+    await openBillingReceiptPdf(data.invoiceNumber, true);
   } catch (err) {
     alertEl.className = 'alert error';
     alertEl.textContent = err.message;
   }
 }
+
+async function fetchMyInvoices() {
+  const alertEl = document.getElementById('patient-invoices-alert');
+  const container = document.getElementById('patient-invoices-list');
+  if (!container) return;
+
+  const patientIdInput = document.getElementById('pat-pay-id');
+  const patientId = patientIdInput ? patientIdInput.value.trim() : (currentUser?.patientId || currentUser?.id);
+  if (!patientId) {
+    if (alertEl) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = 'Please enter your Patient ID to load records.';
+      alertEl.classList.remove('hidden');
+    }
+    return;
+  }
+
+  if (alertEl) {
+    alertEl.className = 'alert info';
+    alertEl.textContent = 'Retrieving your invoices and receipts...';
+    alertEl.classList.remove('hidden');
+  }
+
+  try {
+    const headers = {};
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+
+    const res = await fetch(`/api/v1/billing/patient/${encodeURIComponent(patientId)}`, { headers });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Failed to retrieve invoices');
+    }
+
+    const invoices = Array.isArray(data.data) ? data.data : (Array.isArray(data) ? data : []);
+    if (invoices.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-muted); font-size:0.875rem; margin-top:0.5rem;">No invoices found on file for this patient ID.</p>';
+      if (alertEl) alertEl.classList.add('hidden');
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="table-responsive" style="margin-top:0.75rem;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Invoice #</th>
+              <th>Receipt #</th>
+              <th>Date</th>
+              <th>Amount ($)</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${invoices.map(inv => `
+              <tr>
+                <td><code>${escapeHtml(inv.invoiceNumber)}</code></td>
+                <td><code>${escapeHtml(inv.receiptNumber || 'None')}</code></td>
+                <td>${inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : 'N/A'}</td>
+                <td>$${Number(inv.totalAmount).toFixed(2)}</td>
+                <td>${inv.status === 'PAID' ? '<span class="badge badge-success">PAID</span>' : '<span class="badge badge-secondary">' + escapeHtml(inv.status) + '</span>'}</td>
+                <td>
+                  <div style="display:flex; gap:0.35rem;">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="openBillingReceiptPdf('${escapeHtml(inv.invoiceNumber)}', false)">View PDF</button>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="openBillingReceiptPdf('${escapeHtml(inv.invoiceNumber)}', true)">Download PDF</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    if (alertEl) alertEl.classList.add('hidden');
+  } catch (err) {
+    if (alertEl) {
+      alertEl.className = 'alert error';
+      alertEl.textContent = err.message;
+      alertEl.classList.remove('hidden');
+    }
+  }
+}
+
+// Window global bindings for inline HTML onclick handlers
+window.openBillingReceiptPdf = openBillingReceiptPdf;
+window.lookupAndDownloadReceipt = lookupAndDownloadReceipt;
+window.fetchMyInvoices = fetchMyInvoices;
+window.handlePatientPayment = handlePatientPayment;
 
 // ─── Pharmacy & Medication Inventory Client Logic (US-13 / TC-HMS-07) ──────────
 
@@ -1857,11 +2158,46 @@ async function fetchPharmacyAlerts() {
 
     const alerts = data.data?.alerts || [];
     container.classList.remove('hidden');
-    display.textContent = alerts.length > 0
-      ? JSON.stringify(alerts, null, 2)
-      : 'No active low-stock alerts. All inventory levels are above threshold.';
+    if (alerts.length === 0) {
+      display.innerHTML = `
+        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:4px; padding:0.85rem; font-size:0.875rem; color:#166534;">
+          No active low-stock alerts. All inventory levels are above configured minimum thresholds.
+        </div>
+      `;
+    } else {
+      display.innerHTML = `
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Medication ID</th>
+                <th>Name</th>
+                <th>Current Units</th>
+                <th>Safety Threshold</th>
+                <th>Urgency</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${alerts.map(a => `
+                <tr>
+                  <td><code>${escapeHtml(a.medicationId)}</code></td>
+                  <td><strong>${escapeHtml(a.name)}</strong></td>
+                  <td><span style="color:#dc2626; font-weight:700;">${a.stock}</span></td>
+                  <td>${a.alertThreshold}</td>
+                  <td><span class="badge badge-danger">LOW STOCK REORDER</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
   } catch (err) {
     container.classList.remove('hidden');
-    display.textContent = `Error: ${err.message}`;
+    display.innerHTML = `
+      <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:4px; padding:0.85rem; font-size:0.875rem; color:#991b1b;">
+        Alerts Retrieval Error: ${escapeHtml(err.message)}
+      </div>
+    `;
   }
 }

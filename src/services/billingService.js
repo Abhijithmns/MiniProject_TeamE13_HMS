@@ -7,7 +7,26 @@ const db = require('../db');
  */
 const SUPPORTED_PAYMENT_METHODS = Object.freeze(['CASH', 'CARD', 'UPI']);
 
+/**
+ * Standard fee constants and financial configuration
+ */
+const DEFAULT_CONSULTATION_FEE = 50.00;
+const DEFAULT_TAX_RATE = 0.05;
+
 class BillingService {
+  /**
+   * Defensive rounding helper ensuring precision consistency (2 decimal places)
+   * Prevents IEEE-754 floating-point drift during invoice fee aggregation
+   * @param {number} amount
+   * @returns {number}
+   * @private
+   */
+  _roundCurrency(amount) {
+    const num = Number(amount);
+    if (isNaN(num)) return 0.00;
+    return Math.round((num + Number.EPSILON) * 100) / 100;
+  }
+
   /**
    * Validate and normalize payment method
    * @param {string} method

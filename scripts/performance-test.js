@@ -94,7 +94,10 @@ async function runPerformanceCheck(baseUrl, setup) {
   }
 
   await Promise.all(Array.from({ length: CONCURRENCY }, async (_, workerNumber) => {
-    while (Date.now() < deadline) await request(workerNumber);
+    while (Date.now() < deadline) {
+      await request(workerNumber);
+      await new Promise(resolve => setImmediate(resolve));
+    }
   }));
 
   const p95 = percentile(latencies, 0.95);

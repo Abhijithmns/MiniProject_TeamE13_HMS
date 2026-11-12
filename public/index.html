@@ -9,25 +9,45 @@
 <body>
   <header class="app-header">
     <div class="header-container">
-      <div>
-        <h1 class="logo-title">Hospital Management System</h1>
-        <p class="subtitle">Clinical Operations, Patient Records &amp; Administrative Portal</p>
+      <div class="header-brand">
+        <a href="#login" class="brand-link">
+          <h1 class="logo-title">Hospital Management System</h1>
+          <p class="subtitle">Clinical Operations, Patient Records &amp; Administrative Portal</p>
+        </a>
       </div>
-      <div id="session-badge" class="session-badge">Not Logged In</div>
+      <div class="header-session">
+        <div id="session-badge" class="session-badge">Not Logged In</div>
+        <button id="header-logout-btn" class="btn btn-secondary btn-sm hidden" onclick="logoutUser()">Sign Out</button>
+      </div>
     </div>
   </header>
 
   <main class="main-container">
-    <nav class="nav-tabs">
-      <button class="tab-btn active" data-tab="tab-login">Sign In</button>
-      <button class="tab-btn" data-tab="tab-register">User Registration</button>
-      <button class="tab-btn" data-tab="tab-rbac">Department Portals</button>
-      <button class="tab-btn" data-tab="tab-booking">Appointments &amp; Scheduling</button>
-      <button class="tab-btn" data-tab="tab-ehr">Consultations &amp; EHR</button>
-      <button class="tab-btn" data-tab="tab-billing">Billing &amp; Payments</button>
-      <button class="tab-btn" data-tab="tab-pharmacy">Pharmacy &amp; Dispensary</button>
-      <button class="tab-btn" data-tab="tab-audit">Security Audit Trail</button>
+    <nav class="nav-tabs" id="main-nav">
+      <a class="tab-btn active" href="#login" data-tab="tab-login" data-route="#login">Sign In</a>
+      <a class="tab-btn" href="#register" data-tab="tab-register" data-route="#register">User Registration</a>
+      <a class="tab-btn" href="#portals" data-tab="tab-rbac" data-route="#portals">Department Portals</a>
+      <a class="tab-btn" href="#appointments" data-tab="tab-booking" data-route="#appointments">Appointments &amp; Scheduling</a>
+      <a class="tab-btn" href="#ehr" data-tab="tab-ehr" data-route="#ehr">Consultations &amp; EHR</a>
+      <a class="tab-btn" href="#billing" data-tab="tab-billing" data-route="#billing">Billing &amp; Payments</a>
+      <a class="tab-btn" href="#pharmacy" data-tab="tab-pharmacy" data-route="#pharmacy">Pharmacy &amp; Dispensary</a>
+      <a class="tab-btn" href="#audit" data-tab="tab-audit" data-route="#audit">Security Audit Trail</a>
     </nav>
+
+    <!-- Route Guard Notification View (Auth & Role Access Control) -->
+    <section id="route-guard-view" class="tab-content">
+      <div class="card" style="text-align:center; max-width:620px; margin:2rem auto; padding:2.5rem 1.5rem;">
+        <div id="guard-icon" style="font-size:2.5rem; margin-bottom:1rem;">🔒</div>
+        <h2 id="guard-title" style="margin-bottom:0.75rem;">Authentication Required</h2>
+        <p id="guard-message" class="description" style="margin-bottom:1.5rem; font-size:0.95rem;">
+          You must be signed in to access this hospital feature.
+        </p>
+        <div id="guard-actions" style="display:flex; justify-content:center; gap:1rem; flex-wrap:wrap;">
+          <a href="#login" class="btn btn-primary" id="guard-primary-btn">Sign In to Continue</a>
+          <button type="button" class="btn btn-secondary" id="guard-secondary-btn" onclick="navigateToDefaultPortal()">Return to My Workspace</button>
+        </div>
+      </div>
+    </section>
 
     <!-- Tab 1: Account Sign In -->
     <section id="tab-login" class="tab-content active">
